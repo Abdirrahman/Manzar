@@ -1,6 +1,6 @@
 pkgbase = manzar
 	pkgdesc = A simple local image viewer
-	pkgver = 0.1.0
+	pkgver = 0.1.1
 	pkgrel = 1
 	url = https://github.com/Abdirrahman/Manzar
 	arch = x86_64
@@ -20,7 +20,7 @@ pkgbase = manzar
 	depends = librsvg
 	depends = xdotool
 	depends = hicolor-icon-theme
-	source = manzar-0.1.0.tar.gz::https://github.com/Abdirrahman/Manzar/archive/refs/tags/v0.1.0.tar.gz
-	sha256sums = 74ade19081753fce03613ccad190663b9cde4e61635eb7e778e457494fbf1e68
+	source = manzar-0.1.1.tar.gz::https://github.com/Abdirrahman/Manzar/archive/refs/tags/v0.1.1.tar.gz
+	sha256sums = 16af1b84e63e61626a1809b26d22b1a579ca0b31dcab228bc569fa2f32756d62
 
 pkgname = manzar

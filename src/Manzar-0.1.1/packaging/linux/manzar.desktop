@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Manzar
+Comment=A simple local image viewer
+Exec=manzar %F
+Icon=manzar
+Terminal=false
+Categories=Graphics;Viewer;
+MimeType=image/png;image/jpeg;image/webp;image/gif;image/bmp;

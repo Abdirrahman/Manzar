@@ -1,7 +1,7 @@
 # Maintainer: Manzar contributors
 
 pkgname=manzar
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc='A simple local image viewer'
 arch=('x86_64')
@@ -27,7 +27,7 @@ makedepends=(
   'git'
 )
 source=("$pkgname-$pkgver.tar.gz::https://github.com/Abdirrahman/Manzar/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('74ade19081753fce03613ccad190663b9cde4e61635eb7e778e457494fbf1e68')
+sha256sums=('16af1b84e63e61626a1809b26d22b1a579ca0b31dcab228bc569fa2f32756d62')
 
 build() {
   cd "Manzar-$pkgver"

@@ -76,15 +76,15 @@ The script installs the bootstrap tools with Pacman, then runs `makepkg -si` as 
 When a release includes Arch package assets, download both files:
 
 ```text
-manzar-0.1.0-1-x86_64.pkg.tar.zst
-manzar-0.1.0-1-x86_64.pkg.tar.zst.sha256
+manzar-0.1.1-1-x86_64.pkg.tar.zst
+manzar-0.1.1-1-x86_64.pkg.tar.zst.sha256
 ```
 
 Then verify and install:
 
 ```sh
-sha256sum -c ./manzar-0.1.0-1-x86_64.pkg.tar.zst.sha256
-sudo pacman -U ./manzar-0.1.0-1-x86_64.pkg.tar.zst
+sha256sum -c ./manzar-0.1.1-1-x86_64.pkg.tar.zst.sha256
+sudo pacman -U ./manzar-0.1.1-1-x86_64.pkg.tar.zst
 ```
 
 To uninstall:
@@ -152,8 +152,8 @@ Build artifacts are written under `src-tauri/target/release/bundle/`.
 Desktop release builds are created by GitHub Actions when a version tag is pushed:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 The release workflow builds Linux, Windows, macOS desktop installers, and an x86_64 Arch package, then creates a draft GitHub Release.
