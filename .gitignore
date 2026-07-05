@@ -10,6 +10,10 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+tmp
+temp
+docs
+CONTEXT.md
 *.local
 
 # Editor directories and files
@@ -22,3 +26,21 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Test and coverage output
+coverage
+.nyc_output
+
+# Build and tool caches
+.vite
+*.tsbuildinfo
+.bun
+.pnpm-store
+
+# OS files
+Thumbs.db
