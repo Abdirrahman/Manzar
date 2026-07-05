@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80" shape-rendering="geometricPrecision">
+  <defs>
+    <style>
+      .border { stroke: #5b9bd5; fill: none; stroke-width: 4; }
+      .peak-blue { fill: #5b9bd5; stroke: #3a6fa5; stroke-width: 2; }
+      .peak-green { fill: #92d0c2; stroke: #3a6fa5; stroke-width: 2; }
+      .circle { fill: #92d0c2; stroke: #3a6fa5; stroke-width: 1.5; }
+      .eye-white { fill: #ffffff; stroke: #1f4e79; stroke-width: 2; }
+      .eye-iris { fill: #1f4e79; }
+    </style>
+  </defs>
+  <rect x="10" y="10" width="80" height="60" rx="8" ry="8" class="border"/>
+  <path d="M 18 68 L 48 30 L 60 68 Z" class="peak-blue"/>
+  <path d="M 50 68 L 65 38 L 82 68 Z" class="peak-green"/>
+  <circle cx="72" cy="28" r="5" class="circle"/>
+  <path d="M 40 54 Q 50 42, 60 54 Q 50 66, 40 54 Z" class="eye-white"/>
+  <circle cx="50" cy="54" r="3.5" class="eye-iris"/>
+</svg>
