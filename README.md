@@ -45,17 +45,54 @@
 Download the latest desktop installer for your operating system from the GitHub Releases page.
 
 - **Linux:** use the AppImage for the easiest install.
+- **Arch Linux:** install from source with the repo-root `PKGBUILD`, or install the prebuilt `.pkg.tar.zst` release asset with `pacman -U` when available.
 - **Windows:** use the Windows installer asset.
 - **macOS:** use the macOS disk image or app bundle asset for your Mac.
 
 Manzar is a desktop application. Mobile builds are not published.
 
-### Build from source
+### Arch Linux package install
+
+Install Manzar from the tagged release source using the repo-root `PKGBUILD`:
+
+```sh
+git clone https://github.com/Abdirrahman/Manzar.git
+cd Manzar
+makepkg -si
+```
+
+A convenience wrapper is also available. It installs the bootstrap tools with Pacman, runs `makepkg -si` as your user, and never copies files directly into `/usr`:
+
+```sh
+./scripts/install-arch.sh
+```
+
+To install a prebuilt Arch package downloaded from GitHub Releases:
+
+```sh
+sudo pacman -U ./manzar-0.1.0-1-x86_64.pkg.tar.zst
+```
+
+Verify the checksum first when the matching `.sha256` asset is available:
+
+```sh
+sha256sum -c ./manzar-0.1.0-1-x86_64.pkg.tar.zst.sha256
+```
+
+There is no hosted Pacman repository yet, so `pacman -S manzar` is not supported.
+
+Uninstall the Pacman package with:
+
+```sh
+sudo pacman -Rns manzar
+```
+
+### Build from source for development
 
 Install the build and runtime dependencies. On Arch Linux:
 
 ```sh
-sudo pacman -S --needed base-devel rust bun webkit2gtk-4.1 curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool
+sudo pacman -S --needed base-devel rust bun webkit2gtk-4.1 curl wget file openssl appmenu-gtk-module libappindicator librsvg xdotool
 ```
 
 Clone this repository, then run Manzar in development mode:
@@ -83,7 +120,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow builds Linux, Windows, and macOS desktop installers and creates a draft GitHub Release.
+The workflow builds Linux, Windows, macOS desktop installers, and an x86_64 Arch package, then creates a draft GitHub Release.
 
 ## Shortcuts
 

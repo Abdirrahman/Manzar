@@ -41,6 +41,11 @@ coverage
 *.tsbuildinfo
 .bun
 .pnpm-store
+.makepkg
+/pkg/
+/*.pkg.tar.zst
+/*.pkg.tar.zst.sig
+/*.src.tar.gz
 
 # OS files
 Thumbs.db

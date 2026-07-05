@@ -1,0 +1,26 @@
+pkgbase = manzar
+	pkgdesc = A simple local image viewer
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/Abdirrahman/Manzar
+	arch = x86_64
+	license = MIT
+	makedepends = bun
+	makedepends = rust
+	makedepends = cargo
+	makedepends = curl
+	makedepends = wget
+	makedepends = file
+	makedepends = git
+	depends = webkit2gtk-4.1
+	depends = gtk3
+	depends = openssl
+	depends = appmenu-gtk-module
+	depends = libappindicator
+	depends = librsvg
+	depends = xdotool
+	depends = hicolor-icon-theme
+	source = manzar-0.1.0.tar.gz::https://github.com/Abdirrahman/Manzar/archive/refs/tags/v0.1.0.tar.gz
+	sha256sums = 74ade19081753fce03613ccad190663b9cde4e61635eb7e778e457494fbf1e68
+
+pkgname = manzar

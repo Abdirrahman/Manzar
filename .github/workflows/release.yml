@@ -74,7 +74,74 @@ jobs:
           releaseBody: |
             Download the installer for your operating system from the assets below.
 
-            Linux users should prefer the AppImage for the easiest install.
+            Linux users should prefer the AppImage for the easiest install. Arch Linux users can install the `.pkg.tar.zst` asset with `pacman -U`.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  arch-package:
+    name: Build Arch Linux package
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    needs: build-release
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Install build and release tools
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --needed --noconfirm \
+            base-devel \
+            git \
+            sudo \
+            bun \
+            rust \
+            cargo \
+            curl \
+            wget \
+            file \
+            webkit2gtk-4.1 \
+            gtk3 \
+            openssl \
+            appmenu-gtk-module \
+            libappindicator \
+            librsvg \
+            xdotool \
+            hicolor-icon-theme \
+            pacman-contrib \
+            github-cli
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare non-root build user
+        run: |
+          useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+          chmod 440 /etc/sudoers.d/builder
+          mkdir -p "$GITHUB_WORKSPACE/.makepkg/build" "$GITHUB_WORKSPACE/.makepkg/sources"
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Match PKGBUILD version to tag and refresh checksum
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          sed -i "s/^pkgver=.*/pkgver=$version/" PKGBUILD
+          BUILDDIR="$GITHUB_WORKSPACE/.makepkg/build" SRCDEST="$GITHUB_WORKSPACE/.makepkg/sources" updpkgsums
+          BUILDDIR="$GITHUB_WORKSPACE/.makepkg/build" SRCDEST="$GITHUB_WORKSPACE/.makepkg/sources" makepkg --printsrcinfo > .SRCINFO
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Build Pacman package
+        run: sudo -u builder env BUILDDIR="$GITHUB_WORKSPACE/.makepkg/build" SRCDEST="$GITHUB_WORKSPACE/.makepkg/sources" makepkg --syncdeps --noconfirm --cleanbuild
+
+      - name: Create package checksum
+        run: |
+          pkg_file="$(ls manzar-*.pkg.tar.zst | head -n 1)"
+          sha256sum "$pkg_file" > "$pkg_file.sha256"
+
+      - name: Upload Arch package to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pkg_file="$(ls manzar-*.pkg.tar.zst | head -n 1)"
+          gh release upload "$GITHUB_REF_NAME" "$pkg_file" "$pkg_file.sha256" --clobber
