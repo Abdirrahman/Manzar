@@ -18,8 +18,8 @@ fi
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 
-if [ ! -f "$REPO_ROOT/PKGBUILD" ]; then
-  echo "error: PKGBUILD not found at repository root: $REPO_ROOT" >&2
+if [ ! -f "$REPO_ROOT/packaging/arch/PKGBUILD" ]; then
+  echo "error: PKGBUILD not found at $REPO_ROOT/packaging/arch" >&2
   exit 1
 fi
 
@@ -35,7 +35,7 @@ mkdir -p "$REPO_ROOT/.makepkg/packages"
 mkdir -p "$REPO_ROOT/.makepkg/sources"
 mkdir -p "$REPO_ROOT/.makepkg/srcpackages"
 
-cd "$REPO_ROOT"
+cd "$REPO_ROOT/packaging/arch"
 BUILDDIR="$REPO_ROOT/.makepkg/build" \
 PKGDEST="$REPO_ROOT/.makepkg/packages" \
 SRCDEST="$REPO_ROOT/.makepkg/sources" \
