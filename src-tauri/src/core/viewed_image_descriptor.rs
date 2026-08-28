@@ -17,6 +17,12 @@ use super::{
     supported_image::{media_kind, MediaKind},
 };
 
+/// ponytail: the cache is dropped wholesale at the cap rather than evicting a
+/// least-recently-used entry. It only saves a re-stat plus a header read when an
+/// image is revisited, so the worst case of a clear is cheap; swap in an LRU if
+/// a profile ever says the re-reads matter.
+const MAX_CACHED_PREFLIGHTS: usize = 512;
+
 #[derive(Debug, Default)]
 pub struct ViewedImageDescriptors<P = FilesystemImagePreflightReader> {
     preflight_reader: P,
@@ -92,6 +98,10 @@ impl ViewedImageDescriptors<FilesystemImagePreflightReader> {
 }
 
 impl<P: ImagePreflightReader> ViewedImageDescriptors<P> {
+    pub fn clear(&mut self) {
+        self.preflight_by_path.clear();
+    }
+
     pub fn forget_path(&mut self, path: impl AsRef<Path>) {
         let path = path.as_ref();
         let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
@@ -145,6 +155,10 @@ impl<P: ImagePreflightReader> ViewedImageDescriptors<P> {
             .preflight_reader
             .preflight_image(path)
             .map_err(ViewedImageDescriptorError::MetadataPreflight)?;
+
+        if self.preflight_by_path.len() >= MAX_CACHED_PREFLIGHTS {
+            self.preflight_by_path.clear();
+        }
 
         self.preflight_by_path.insert(
             path.to_path_buf(),
@@ -294,6 +308,24 @@ mod tests {
         assert_eq!(changed.url, first.url);
         assert_eq!(changed.preflight.file_size_bytes, 18);
         assert_eq!(descriptors.preflight_reader.calls, 2);
+    }
+
+    #[test]
+    fn the_preflight_cache_stays_bounded_while_walking_a_large_folder() {
+        let directory = tempdir().expect("temp dir");
+        let mut registry = ApprovedImageRegistry::default();
+        let mut descriptors =
+            ViewedImageDescriptors::with_preflight_reader(CountingFilesystemPreflight::default());
+
+        for index in 0..(MAX_CACHED_PREFLIGHTS + 50) {
+            let image = directory.path().join(format!("image{index}.png"));
+            std::fs::write(&image, b"image bytes").expect("image file");
+            descriptors
+                .descriptor_for_path(&image, &mut registry)
+                .expect("descriptor");
+        }
+
+        assert!(descriptors.preflight_by_path.len() <= MAX_CACHED_PREFLIGHTS);
     }
 
     #[test]

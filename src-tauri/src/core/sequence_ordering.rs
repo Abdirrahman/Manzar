@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, path::Path, time::SystemTime};
+use std::{cmp::Ordering, iter::Peekable, path::Path, str::Chars, time::SystemTime};
 
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +24,9 @@ pub trait OrderedImage {
 }
 
 pub fn sort_images<T: OrderedImage>(images: &mut [T], ordering: SequenceOrdering) {
-    images.sort_by(|left, right| compare_images(left, right, ordering));
+    // Unstable is safe here: compare_images breaks every tie on the full path,
+    // so the order is total and never depends on the sort preserving input order.
+    images.sort_unstable_by(|left, right| compare_images(left, right, ordering));
 }
 
 fn compare_images<T: OrderedImage>(left: &T, right: &T, ordering: SequenceOrdering) -> Ordering {
@@ -57,52 +59,58 @@ fn stable_path_cmp(left: &Path, right: &Path) -> Ordering {
     left.to_string_lossy().cmp(&right.to_string_lossy())
 }
 
+/// Walks both names in lockstep without allocating. The previous version built a
+/// `Vec<char>` for each name on every comparison and a `String` for every
+/// character compared, which dominated the cost of sorting a large folder.
 fn natural_str_cmp(left: &str, right: &str) -> Ordering {
-    let left_chars = left.chars().collect::<Vec<_>>();
-    let right_chars = right.chars().collect::<Vec<_>>();
-    let mut left_index = 0;
-    let mut right_index = 0;
+    let mut left_chars = left.chars().peekable();
+    let mut right_chars = right.chars().peekable();
 
-    while left_index < left_chars.len() && right_index < right_chars.len() {
-        if left_chars[left_index].is_ascii_digit() && right_chars[right_index].is_ascii_digit() {
-            let (left_number, next_left) = take_number(&left_chars, left_index);
-            let (right_number, next_right) = take_number(&right_chars, right_index);
-            let number_order = left_number.cmp(&right_number);
+    loop {
+        let (Some(left_char), Some(right_char)) =
+            (left_chars.peek().copied(), right_chars.peek().copied())
+        else {
+            break;
+        };
+
+        if left_char.is_ascii_digit() && right_char.is_ascii_digit() {
+            let number_order = take_number(&mut left_chars).cmp(&take_number(&mut right_chars));
             if number_order != Ordering::Equal {
                 return number_order;
             }
-            left_index = next_left;
-            right_index = next_right;
             continue;
         }
 
-        let char_order = left_chars[left_index]
-            .to_lowercase()
-            .to_string()
-            .cmp(&right_chars[right_index].to_lowercase().to_string());
+        // `char::to_lowercase` yields an iterator, so comparing the iterators
+        // gives the same case-insensitive result the old `String` compare did.
+        let char_order = left_char.to_lowercase().cmp(right_char.to_lowercase());
         if char_order != Ordering::Equal {
             return char_order;
         }
 
-        left_index += 1;
-        right_index += 1;
+        left_chars.next();
+        right_chars.next();
     }
 
-    left_chars.len().cmp(&right_chars.len())
+    // Same final tie-break as before: the shorter name sorts first. Reached only
+    // when the names are otherwise equal, so the extra counts are not hot.
+    match (left_chars.peek(), right_chars.peek()) {
+        (None, None) => left.chars().count().cmp(&right.chars().count()),
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (Some(_), Some(_)) => unreachable!("loop only breaks when a side is exhausted"),
+    }
 }
 
-fn take_number(chars: &[char], start: usize) -> (u128, usize) {
+fn take_number(chars: &mut Peekable<Chars<'_>>) -> u128 {
     let mut value = 0_u128;
-    let mut index = start;
 
-    while index < chars.len() && chars[index].is_ascii_digit() {
-        value = value
-            .saturating_mul(10)
-            .saturating_add(chars[index].to_digit(10).unwrap_or_default() as u128);
-        index += 1;
+    while let Some(digit) = chars.peek().and_then(|digit| digit.to_digit(10)) {
+        value = value.saturating_mul(10).saturating_add(u128::from(digit));
+        chars.next();
     }
 
-    (value, index)
+    value
 }
 
 #[cfg(test)]
@@ -169,6 +177,26 @@ mod tests {
             names(&images),
             vec!["image1.png", "image2.png", "Image10.png"]
         );
+    }
+
+    #[test]
+    fn natural_name_ordering_handles_digit_runs_padding_and_unicode() {
+        // Numeric runs compare by value, not digit-by-digit.
+        assert_eq!(natural_str_cmp("image9.png", "image10.png"), Ordering::Less);
+        assert_eq!(
+            natural_str_cmp("image100.png", "image99.png"),
+            Ordering::Greater
+        );
+        // Equal values, different padding: the shorter name wins, as before.
+        assert_eq!(natural_str_cmp("img01.png", "img1.png"), Ordering::Greater);
+        assert_eq!(natural_str_cmp("img1.png", "img1.png"), Ordering::Equal);
+        // Case-insensitive, including outside ASCII.
+        assert_eq!(natural_str_cmp("Photo.png", "photo.png"), Ordering::Equal);
+        assert_eq!(natural_str_cmp("Ärger.png", "ärger.png"), Ordering::Equal);
+        // A prefix sorts before the longer name that extends it.
+        assert_eq!(natural_str_cmp("clip.mp4", "clip2.mp4"), Ordering::Less);
+        // Numbers sort ahead of letters at the same position.
+        assert_eq!(natural_str_cmp("2clip.mkv", "aclip.mkv"), Ordering::Less);
     }
 
     #[test]

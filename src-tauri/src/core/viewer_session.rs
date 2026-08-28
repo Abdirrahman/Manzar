@@ -4,6 +4,11 @@ use serde::Serialize;
 
 pub use super::viewed_image_descriptor::ViewerImage;
 
+/// ponytail: a flat cap with a wholesale clear, matching the preflight cache.
+/// Only the image on screen has to stay approved, so a clear costs one
+/// re-approval; per-entry eviction would need liveness tracking nothing needs yet.
+const MAX_APPROVED_IMAGES: usize = 512;
+
 use super::{
     file_actions::{self, FileActionError, TrashDeleter},
     image_registry::{ApprovedImageRegistry, ImageRegistryError},
@@ -60,7 +65,7 @@ impl ViewerSession {
         let sequence = ImageSequence::from_single_image(path, self.sequence_ordering)
             .map_err(ViewerSessionError::ImageSequence)?;
         self.sequence = Some(sequence);
-        registry.clear();
+        self.reset_caches(registry);
         self.snapshot(registry)
     }
 
@@ -72,7 +77,7 @@ impl ViewerSession {
         let sequence = ImageSequence::from_image_selection(paths, self.sequence_ordering)
             .map_err(ViewerSessionError::ImageSequence)?;
         self.sequence = Some(sequence);
-        registry.clear();
+        self.reset_caches(registry);
         self.snapshot(registry)
     }
 
@@ -84,7 +89,7 @@ impl ViewerSession {
         let sequence = ImageSequence::from_folder(folder, self.sequence_ordering)
             .map_err(ViewerSessionError::ImageSequence)?;
         self.sequence = Some(sequence);
-        registry.clear();
+        self.reset_caches(registry);
         self.snapshot(registry)
     }
 
@@ -167,10 +172,22 @@ impl ViewerSession {
         self.snapshot(registry)
     }
 
+    fn reset_caches(&mut self, registry: &mut ApprovedImageRegistry) {
+        registry.clear();
+        self.image_descriptors.clear();
+    }
+
     pub fn snapshot(
         &mut self,
         registry: &mut ApprovedImageRegistry,
     ) -> Result<ViewerSnapshot, ViewerSessionError> {
+        // Only the current image needs to stay approved, so bound the caches
+        // before adding to them; walking a large folder would otherwise retain
+        // an entry for every image ever displayed.
+        if registry.len() >= MAX_APPROVED_IMAGES {
+            self.reset_caches(registry);
+        }
+
         let Some(sequence) = &self.sequence else {
             return Ok(ViewerSnapshot {
                 current: None,
@@ -327,6 +344,34 @@ mod tests {
             .url
             .contains(directory.path().to_string_lossy().as_ref()));
         assert!(!current.preflight.oversized);
+    }
+
+    #[test]
+    fn walking_a_large_sequence_keeps_the_approved_registry_bounded() {
+        let directory = tempdir().expect("temp dir");
+        for index in 0..(MAX_APPROVED_IMAGES + 20) {
+            std::fs::write(
+                directory.path().join(format!("image{index:04}.png")),
+                b"image bytes",
+            )
+            .expect("image file");
+        }
+
+        let mut registry = ApprovedImageRegistry::default();
+        let mut session = ViewerSession::new(SequenceOrdering::NaturalName);
+        session
+            .open_folder(directory.path(), &mut registry)
+            .expect("open folder");
+
+        for _ in 0..(MAX_APPROVED_IMAGES + 20) {
+            session.next(&mut registry).expect("navigate next");
+        }
+
+        assert!(registry.len() <= MAX_APPROVED_IMAGES);
+        // The image on screen is still servable after any bounding clear.
+        let snapshot = session.snapshot(&mut registry).expect("snapshot");
+        let current = snapshot.current.expect("current image");
+        assert!(serve_approved_image(&registry, &ImageId::from_opaque(current.id)).is_ok());
     }
 
     #[test]

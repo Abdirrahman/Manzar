@@ -245,22 +245,33 @@ impl OrderedImage for ImageSequenceItem {
 }
 
 fn supported_images_in_folder(folder: &Path) -> Result<Vec<ImageSequenceItem>, ImageSequenceError> {
+    // Resolved once for the whole folder. Every entry below is a regular file
+    // inside a canonical folder, so joining the name is already canonical and
+    // the per-entry canonicalize() this used to do was a redundant resolve walk
+    // for each file -- the dominant cost of opening a large folder.
+    let folder = folder.canonicalize()?;
     let mut items = Vec::new();
 
-    for entry in std::fs::read_dir(folder)? {
+    for entry in std::fs::read_dir(&folder)? {
         let entry = entry?;
-        let path = entry.path();
-        if is_hidden_dotfile(&path) || !is_supported_media(&path) {
+        let file_name = entry.file_name();
+
+        // Filter on the name before building a path, so unsupported entries
+        // cost no allocation.
+        let name = Path::new(&file_name);
+        if is_hidden_dotfile(name) || !is_supported_media(name) {
             continue;
         }
 
+        // Not traversed for symlinks, which is what keeps a symlinked entry from
+        // entering the sequence with a non-canonical path.
         let metadata = entry.metadata()?;
         if !metadata.is_file() {
             continue;
         }
 
         items.push(ImageSequenceItem {
-            path: path.canonicalize()?,
+            path: folder.join(name),
             modified: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
             size_bytes: metadata.len(),
         });

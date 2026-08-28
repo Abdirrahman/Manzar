@@ -26,3 +26,10 @@ trash = "5"
 
 [dev-dependencies]
 tempfile = "3"
+
+[profile.release]
+# One codegen unit plus cross-crate LTO: a smaller binary pages in faster on
+# launch, which is most of a desktop viewer's startup cost. Not stripping, so
+# makepkg can still split out the debug package.
+codegen-units = 1
+lto = true

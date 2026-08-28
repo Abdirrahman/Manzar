@@ -91,6 +91,14 @@ impl ApprovedImageRegistry {
         self.paths_by_id.get(id).map(PathBuf::as_path)
     }
 
+    pub fn len(&self) -> usize {
+        self.paths_by_id.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.paths_by_id.is_empty()
+    }
+
     pub fn clear(&mut self) {
         self.paths_by_id.clear();
         self.ids_by_path.clear();
