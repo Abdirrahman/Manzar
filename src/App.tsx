@@ -619,7 +619,6 @@ function App() {
                 src={current.url}
                 controls
                 autoPlay
-                loop
                 preload="metadata"
                 aria-label="Current video"
               />
