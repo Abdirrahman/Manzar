@@ -2,6 +2,7 @@ pub mod file_actions;
 pub mod image_protocol;
 pub mod image_registry;
 pub mod image_sequence;
+pub mod media_server;
 pub mod metadata_preflight;
 pub mod sequence_ordering;
 pub mod settings;

@@ -5,16 +5,16 @@
 </h1>
 
 <p align="center">
-  <strong>A simple local image viewer for people who don't want a photo library.</strong>
+  <strong>A simple local image and video viewer for people who don't want a photo library.</strong>
 </p>
 
 <p align="center">
-  PNG · JPEG · WebP · GIF · BMP
+  PNG · JPEG · WebP · GIF · BMP · MP4 · MOV · MKV · WebM
 </p>
 
 ---
 
-Manzar opens local image files, selections, and folders without importing them into a catalogue, syncing them to an account, or trying to manage your photos for you.
+Manzar opens local image and video files, selections, and folders without importing them into a catalogue, syncing them to an account, or trying to manage your media for you.
 
 Use it when you want to quickly inspect a directory of images, move through a sequence, zoom in, rename one file, or send the current image to trash — then get out of the way.
 
@@ -25,14 +25,19 @@ Use it when you want to quickly inspect a directory of images, move through a se
 
 ## Features
 
-- Open a single image, multiple selected images, or a folder.
-- Navigate image sequences with previous/next controls.
+- Open a single file, multiple selected files, or a folder.
+- Play MP4, MOV, MKV, and WebM with native controls; space toggles playback.
+- Navigate mixed image and video sequences with previous/next controls.
 - Sort by name, newest modified, largest first, or smallest first.
 - Fit to window, zoom, view actual size, pan, and fullscreen.
 - Warn before displaying very large images that may be slow.
 - Rename the current image without leaving the viewer.
 - Move only the current image to trash.
-- Open image files from the desktop/file manager on Linux via `manzar %F`.
+- Open image and video files from the desktop/file manager on Linux via `manzar %F`.
+
+> On Linux, video playback needs the GStreamer plugins (`gst-plugins-base`,
+> `gst-plugins-good`, `gst-plugins-bad`, `gst-libav`). The Arch package depends
+> on them; other distributions may need them installed separately.
 
 ## Install
 
@@ -59,7 +64,7 @@ cd Manzar
 makepkg -si
 ```
 
-This builds an Arch package from the repo-root `PKGBUILD` and installs it through Pacman.
+This builds an Arch package from the `packaging/arch/PKGBUILD` and installs it through Pacman.
 
 ### Use the convenience script
 

@@ -9,10 +9,12 @@ use serde::Serialize;
 use super::{
     image_protocol::image_url,
     image_registry::{ApprovedImageRegistry, ImageRegistryError},
+    media_server,
     metadata_preflight::{
         preflight_image, ImageDimensions, ImagePreflight, MetadataPreflightError,
         OversizedImageReason,
     },
+    supported_image::{media_kind, MediaKind},
 };
 
 #[derive(Debug, Default)]
@@ -44,6 +46,7 @@ pub trait ImagePreflightReader {
 pub struct ViewerImage {
     pub id: String,
     pub url: String,
+    pub kind: MediaKind,
     pub preflight: ImagePreflightDto,
 }
 
@@ -106,11 +109,21 @@ impl<P: ImagePreflightReader> ViewedImageDescriptors<P> {
         let canonical_path = approved.path().to_path_buf();
         let preflight = self.preflight_for_path(&canonical_path)?;
         let id = approved.id().as_str().to_string();
-        let url = image_url(approved.id());
+        // The registry only approves supported media, so the kind always resolves.
+        let kind = media_kind(&canonical_path).unwrap_or(MediaKind::Image);
+        // WebKitGTK cannot play <video> from a custom URI scheme, so video is
+        // addressed on the loopback media origin instead. See media_server.
+        let url = match kind {
+            MediaKind::Video => {
+                media_server::video_url(approved.id()).unwrap_or_else(|| image_url(approved.id()))
+            }
+            MediaKind::Image => image_url(approved.id()),
+        };
 
         Ok(ViewerImage {
             id,
             url,
+            kind,
             preflight: ImagePreflightDto::from_preflight(preflight),
         })
     }
@@ -132,6 +145,7 @@ impl<P: ImagePreflightReader> ViewedImageDescriptors<P> {
             .preflight_reader
             .preflight_image(path)
             .map_err(ViewedImageDescriptorError::MetadataPreflight)?;
+
         self.preflight_by_path.insert(
             path.to_path_buf(),
             CachedImagePreflight {
@@ -280,6 +294,34 @@ mod tests {
         assert_eq!(changed.url, first.url);
         assert_eq!(changed.preflight.file_size_bytes, 18);
         assert_eq!(descriptors.preflight_reader.calls, 2);
+    }
+
+    #[test]
+    fn video_descriptors_report_the_video_media_kind() {
+        let directory = tempdir().expect("temp dir");
+        let image = directory.path().join("photo.png");
+        let video = directory.path().join("clip.mp4");
+        std::fs::write(&image, b"image bytes").expect("image file");
+        std::fs::write(&video, b"video bytes").expect("video file");
+
+        let mut registry = ApprovedImageRegistry::default();
+        let mut descriptors =
+            ViewedImageDescriptors::with_preflight_reader(CountingFilesystemPreflight::default());
+
+        assert_eq!(
+            descriptors
+                .descriptor_for_path(&image, &mut registry)
+                .expect("image descriptor")
+                .kind,
+            MediaKind::Image
+        );
+        assert_eq!(
+            descriptors
+                .descriptor_for_path(&video, &mut registry)
+                .expect("video descriptor")
+                .kind,
+            MediaKind::Video
+        );
     }
 
     #[test]

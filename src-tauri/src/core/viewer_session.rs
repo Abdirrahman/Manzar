@@ -212,26 +212,26 @@ impl ViewerSessionError {
     pub fn frontend_safe_message(&self) -> &'static str {
         match self {
             Self::ImageSequence(ImageSequenceError::HiddenImage) => {
-                "hidden images are not supported"
+                "hidden files are not supported"
             }
-            Self::ImageSequence(ImageSequenceError::NoParentFolder) => "image has no parent folder",
+            Self::ImageSequence(ImageSequenceError::NoParentFolder) => "file has no parent folder",
             Self::ImageSequence(ImageSequenceError::NoSupportedImages) => {
-                "no supported images were found"
+                "no supported images or videos were found"
             }
-            Self::ImageSequence(ImageSequenceError::UnsupportedImage) => "unsupported image format",
+            Self::ImageSequence(ImageSequenceError::UnsupportedImage) => "unsupported file format",
             Self::ImageSequence(ImageSequenceError::FileSystem(error))
             | Self::ImageRegistry(ImageRegistryError::FileSystem(error))
             | Self::MetadataPreflight(MetadataPreflightError::FileSystem(error)) => {
                 if error.kind() == std::io::ErrorKind::NotFound {
-                    "image file was not found"
+                    "file was not found"
                 } else {
-                    "failed to access image file"
+                    "failed to access file"
                 }
             }
             Self::ImageRegistry(ImageRegistryError::HiddenImage) => {
-                "hidden images are not supported"
+                "hidden files are not supported"
             }
-            Self::ImageRegistry(ImageRegistryError::UnsupportedImage) => "unsupported image format",
+            Self::ImageRegistry(ImageRegistryError::UnsupportedImage) => "unsupported file format",
             Self::FileAction(FileActionError::EmptyStem) => "rename name cannot be empty",
             Self::FileAction(FileActionError::HiddenTarget) => {
                 "rename name cannot start with a dot"
@@ -240,21 +240,21 @@ impl ViewerSessionError {
                 "rename name cannot contain path separators"
             }
             Self::FileAction(FileActionError::TargetAlreadyExists) => {
-                "an image with that name already exists"
+                "a file with that name already exists"
             }
             Self::FileAction(FileActionError::TrashDeletionFailed) => {
-                "failed to move image to trash"
+                "failed to move file to trash"
             }
-            Self::FileAction(FileActionError::NoParentFolder) => "image has no parent folder",
-            Self::FileAction(FileActionError::MissingExtension) => "unsupported image format",
+            Self::FileAction(FileActionError::NoParentFolder) => "file has no parent folder",
+            Self::FileAction(FileActionError::MissingExtension) => "unsupported file format",
             Self::FileAction(FileActionError::FileSystem(error)) => {
                 if error.kind() == std::io::ErrorKind::NotFound {
-                    "image file was not found"
+                    "file was not found"
                 } else {
-                    "failed to update image file"
+                    "failed to update file"
                 }
             }
-            Self::NoCurrentImage => "no image is currently open",
+            Self::NoCurrentImage => "nothing is currently open",
         }
     }
 }
@@ -543,7 +543,7 @@ mod tests {
             .expect_err("unsupported image");
         let message = error.frontend_safe_message();
 
-        assert_eq!(message, "unsupported image format");
+        assert_eq!(message, "unsupported file format");
         assert!(!message.contains("private-notes"));
         assert!(!message.contains(directory.path().to_string_lossy().as_ref()));
     }
@@ -825,7 +825,7 @@ mod tests {
 
         assert_eq!(
             error.frontend_safe_message(),
-            "failed to move image to trash"
+            "failed to move file to trash"
         );
         assert_eq!(snapshot.count, 2);
         assert_eq!(snapshot.current_position, Some(1));

@@ -6,7 +6,7 @@ use std::{
 
 use super::{
     sequence_ordering::{sort_images, OrderedImage, SequenceOrdering},
-    supported_image::{is_hidden_dotfile, is_supported_image},
+    supported_image::{is_hidden_dotfile, is_supported_media},
 };
 
 #[derive(Debug, Clone)]
@@ -46,7 +46,7 @@ impl ImageSequence {
         if is_hidden_dotfile(opened_path) {
             return Err(ImageSequenceError::HiddenImage);
         }
-        if !is_supported_image(opened_path) {
+        if !is_supported_media(opened_path) {
             return Err(ImageSequenceError::UnsupportedImage);
         }
 
@@ -77,7 +77,7 @@ impl ImageSequence {
 
         for path in paths {
             let path = path.as_ref();
-            if is_hidden_dotfile(path) || !is_supported_image(path) {
+            if is_hidden_dotfile(path) || !is_supported_media(path) {
                 continue;
             }
 
@@ -250,7 +250,7 @@ fn supported_images_in_folder(folder: &Path) -> Result<Vec<ImageSequenceItem>, I
     for entry in std::fs::read_dir(folder)? {
         let entry = entry?;
         let path = entry.path();
-        if is_hidden_dotfile(&path) || !is_supported_image(&path) {
+        if is_hidden_dotfile(&path) || !is_supported_media(&path) {
             continue;
         }
 

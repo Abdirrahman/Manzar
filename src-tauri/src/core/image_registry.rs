@@ -5,7 +5,7 @@ use std::{
 
 use uuid::Uuid;
 
-use super::supported_image::{is_hidden_dotfile, is_supported_image};
+use super::supported_image::{is_hidden_dotfile, is_supported_media};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ImageId(String);
@@ -64,7 +64,7 @@ impl ApprovedImageRegistry {
         if is_hidden_dotfile(path) {
             return Err(ImageRegistryError::HiddenImage);
         }
-        if !is_supported_image(path) {
+        if !is_supported_media(path) {
             return Err(ImageRegistryError::UnsupportedImage);
         }
 
