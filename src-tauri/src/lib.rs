@@ -218,8 +218,12 @@ mod tests {
         let directory = tempdir().expect("temp dir");
         let opened = directory.path().join("a-opened.png");
         let sibling = directory.path().join("z-sibling.jpg");
-        std::fs::write(&opened, b"opened image").expect("opened image");
+        // The sibling is written first so the opened image is the newer of the
+        // two. The default ordering is newest-modified-first, so the opened
+        // image leads whether or not both writes land on the same mtime tick:
+        // by modification time if they differ, by name if they tie.
         std::fs::write(&sibling, b"sibling image").expect("sibling image");
+        std::fs::write(&opened, b"opened image").expect("opened image");
 
         let session = SharedViewerSession::default();
         let registry = SharedImageRegistry::default();
