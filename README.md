@@ -36,7 +36,7 @@ Use it when you want to quickly inspect a directory of images, move through a se
 - Open image and video files from the desktop/file manager on Linux via `manzar %F`.
 
 > On Linux, video playback needs the GStreamer plugins (`gst-plugins-base`,
-> `gst-plugins-good`, `gst-plugins-bad`, `gst-libav`). The Arch package depends
+> `gst-plugins-good`, `gst-plugins-bad-libs`, `gst-libav`). The Arch package depends
 > on them; other distributions may need them installed separately.
 
 ## Install
