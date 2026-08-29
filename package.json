@@ -1,7 +1,7 @@
 {
   "name": "manzar",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "A local image viewer built with Tauri and React",
   "type": "module",
   "scripts": {
