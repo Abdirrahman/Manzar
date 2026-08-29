@@ -1,16 +1,24 @@
-use std::path::Path;
+use std::io::{Read, Seek, SeekFrom};
 
 use super::{
     image_registry::{ApprovedImageRegistry, ImageId},
     metadata_preflight::MAX_SAFE_FILE_SIZE_BYTES,
+    supported_image::{media_kind, media_mime_type, MediaKind},
 };
 
 pub const IMAGE_PROTOCOL_SCHEME: &str = "manzar-image";
+
+/// Largest slice of a video served for one request. Playback is a sequence of
+/// range requests, so this caps how much video is ever resident in memory.
+pub const VIDEO_CHUNK_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProtocolImageResponse {
     mime_type: &'static str,
     bytes: Vec<u8>,
+    /// `Some("bytes start-end/total")` when only a slice was served.
+    content_range: Option<String>,
+    total_bytes: u64,
 }
 
 #[derive(Debug)]
@@ -18,6 +26,7 @@ pub enum ImageProtocolError {
     UnknownImageId,
     UnsupportedImage,
     OversizedImage,
+    RangeNotSatisfiable { total_bytes: u64 },
     FileSystem(std::io::Error),
 }
 
@@ -38,6 +47,18 @@ impl ProtocolImageResponse {
 
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
+    }
+
+    pub fn content_range(&self) -> Option<&str> {
+        self.content_range.as_deref()
+    }
+
+    pub fn is_partial(&self) -> bool {
+        self.content_range.is_some()
+    }
+
+    pub fn total_bytes(&self) -> u64 {
+        self.total_bytes
     }
 }
 
@@ -64,33 +85,101 @@ pub fn serve_approved_image(
     registry: &ApprovedImageRegistry,
     id: &ImageId,
 ) -> Result<ProtocolImageResponse, ImageProtocolError> {
+    serve_approved_media(registry, id, None)
+}
+
+pub fn serve_approved_media(
+    registry: &ApprovedImageRegistry,
+    id: &ImageId,
+    range_header: Option<&str>,
+) -> Result<ProtocolImageResponse, ImageProtocolError> {
     let path = registry
         .path_for(id)
         .ok_or(ImageProtocolError::UnknownImageId)?;
-    let mime_type = supported_image_mime_type(path).ok_or(ImageProtocolError::UnsupportedImage)?;
-    let metadata = std::fs::metadata(path)?;
-    if metadata.len() > MAX_SAFE_FILE_SIZE_BYTES {
-        return Err(ImageProtocolError::OversizedImage);
-    }
-    let bytes = std::fs::read(path)?;
+    let kind = media_kind(path).ok_or(ImageProtocolError::UnsupportedImage)?;
+    let mime_type = media_mime_type(path).ok_or(ImageProtocolError::UnsupportedImage)?;
+    let total_bytes = std::fs::metadata(path)?.len();
 
-    Ok(ProtocolImageResponse { mime_type, bytes })
+    // An image is decoded whole by the webview anyway, so it is read whole and
+    // capped by size. Only video is worth streaming.
+    if kind == MediaKind::Image {
+        if total_bytes > MAX_SAFE_FILE_SIZE_BYTES {
+            return Err(ImageProtocolError::OversizedImage);
+        }
+
+        return Ok(ProtocolImageResponse {
+            mime_type,
+            bytes: std::fs::read(path)?,
+            content_range: None,
+            total_bytes,
+        });
+    }
+
+    if total_bytes == 0 {
+        return Ok(ProtocolImageResponse {
+            mime_type,
+            bytes: Vec::new(),
+            content_range: None,
+            total_bytes,
+        });
+    }
+
+    let (start, requested_end) = range_header
+        .and_then(|header| parse_byte_range(header, total_bytes))
+        .unwrap_or((0, None));
+
+    if start >= total_bytes {
+        return Err(ImageProtocolError::RangeNotSatisfiable { total_bytes });
+    }
+
+    let last_byte = total_bytes - 1;
+    let end = requested_end
+        .unwrap_or(last_byte)
+        .min(last_byte)
+        .min(start + VIDEO_CHUNK_BYTES - 1);
+    let length = end - start + 1;
+
+    let mut file = std::fs::File::open(path)?;
+    file.seek(SeekFrom::Start(start))?;
+    let mut bytes = Vec::with_capacity(length as usize);
+    file.take(length).read_to_end(&mut bytes)?;
+
+    // A short read means the file shrank between the metadata call and the read;
+    // report what was actually produced so Content-Range never over-promises.
+    if bytes.is_empty() {
+        return Err(ImageProtocolError::RangeNotSatisfiable { total_bytes });
+    }
+    let end = start + bytes.len() as u64 - 1;
+
+    Ok(ProtocolImageResponse {
+        mime_type,
+        bytes,
+        content_range: Some(format!("bytes {start}-{end}/{total_bytes}")),
+        total_bytes,
+    })
 }
 
-fn supported_image_mime_type(path: &Path) -> Option<&'static str> {
-    match path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| extension.to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("png") => Some("image/png"),
-        Some("jpg" | "jpeg") => Some("image/jpeg"),
-        Some("webp") => Some("image/webp"),
-        Some("gif") => Some("image/gif"),
-        Some("bmp") => Some("image/bmp"),
-        _ => None,
+/// Parses a single `Range: bytes=…` spec. Multi-range requests are not
+/// honoured; returning `None` makes the caller serve from the start instead.
+fn parse_byte_range(header: &str, total_bytes: u64) -> Option<(u64, Option<u64>)> {
+    let spec = header.trim().strip_prefix("bytes=")?;
+    let (start, end) = spec.split_once('-')?;
+    let (start, end) = (start.trim(), end.trim());
+
+    if start.is_empty() {
+        // Suffix range: `bytes=-500` means the last 500 bytes.
+        let suffix: u64 = end.parse().ok()?;
+        return Some((total_bytes.saturating_sub(suffix), None));
     }
+
+    let start = start.parse().ok()?;
+    let end = if end.is_empty() {
+        None
+    } else {
+        Some(end.parse().ok()?)
+    };
+
+    Some((start, end))
 }
 
 #[cfg(test)]
@@ -112,6 +201,7 @@ mod tests {
 
         assert_eq!(response.mime_type(), "image/png");
         assert_eq!(response.bytes(), b"png bytes");
+        assert!(!response.is_partial());
     }
 
     #[test]
@@ -174,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn supported_image_mime_types_are_served() {
+    fn supported_media_mime_types_are_served() {
         for (name, expected_mime_type) in [
             ("image.png", "image/png"),
             ("image.jpg", "image/jpeg"),
@@ -183,13 +273,17 @@ mod tests {
             ("image.webp", "image/webp"),
             ("image.gif", "image/gif"),
             ("image.bmp", "image/bmp"),
+            ("clip.mp4", "video/mp4"),
+            ("clip.mov", "video/quicktime"),
+            ("clip.mkv", "video/x-matroska"),
+            ("clip.webm", "video/webm"),
         ] {
             let directory = tempdir().expect("temp dir");
-            let image = directory.path().join(name);
-            std::fs::write(&image, b"image bytes").expect("image file");
+            let media = directory.path().join(name);
+            std::fs::write(&media, b"media bytes").expect("media file");
 
             let mut registry = ApprovedImageRegistry::default();
-            let approved = registry.approve_path(&image).expect("approved image");
+            let approved = registry.approve_path(&media).expect("approved media");
             let response =
                 serve_approved_image(&registry, approved.id()).expect("protocol response");
 
@@ -212,5 +306,105 @@ mod tests {
             Err(ImageProtocolError::FileSystem(error))
                 if error.kind() == std::io::ErrorKind::NotFound
         ));
+    }
+
+    #[test]
+    fn video_larger_than_the_image_size_cap_is_served_instead_of_rejected() {
+        let directory = tempdir().expect("temp dir");
+        let video = directory.path().join("huge.mkv");
+        std::fs::File::create(&video)
+            .expect("test video")
+            .set_len(MAX_SAFE_FILE_SIZE_BYTES + 1)
+            .expect("large sparse file");
+
+        let mut registry = ApprovedImageRegistry::default();
+        let approved = registry.approve_path(&video).expect("approved video");
+
+        let response =
+            serve_approved_media(&registry, approved.id(), None).expect("video response");
+
+        assert!(response.is_partial());
+        assert_eq!(response.bytes().len() as u64, VIDEO_CHUNK_BYTES);
+        assert_eq!(response.total_bytes(), MAX_SAFE_FILE_SIZE_BYTES + 1);
+        assert_eq!(
+            response.content_range(),
+            Some(
+                format!(
+                    "bytes 0-{}/{}",
+                    VIDEO_CHUNK_BYTES - 1,
+                    MAX_SAFE_FILE_SIZE_BYTES + 1
+                )
+                .as_str()
+            )
+        );
+    }
+
+    #[test]
+    fn video_range_request_serves_only_the_requested_slice() {
+        let directory = tempdir().expect("temp dir");
+        let video = directory.path().join("clip.mp4");
+        std::fs::write(&video, b"0123456789").expect("video file");
+
+        let mut registry = ApprovedImageRegistry::default();
+        let approved = registry.approve_path(&video).expect("approved video");
+
+        let response = serve_approved_media(&registry, approved.id(), Some("bytes=3-6"))
+            .expect("range response");
+
+        assert_eq!(response.bytes(), b"3456");
+        assert_eq!(response.content_range(), Some("bytes 3-6/10"));
+        assert_eq!(response.mime_type(), "video/mp4");
+    }
+
+    #[test]
+    fn open_ended_and_suffix_video_ranges_are_honoured() {
+        let directory = tempdir().expect("temp dir");
+        let video = directory.path().join("clip.webm");
+        std::fs::write(&video, b"0123456789").expect("video file");
+
+        let mut registry = ApprovedImageRegistry::default();
+        let approved = registry.approve_path(&video).expect("approved video");
+
+        let open_ended = serve_approved_media(&registry, approved.id(), Some("bytes=7-"))
+            .expect("open ended range");
+        assert_eq!(open_ended.bytes(), b"789");
+        assert_eq!(open_ended.content_range(), Some("bytes 7-9/10"));
+
+        let suffix =
+            serve_approved_media(&registry, approved.id(), Some("bytes=-3")).expect("suffix range");
+        assert_eq!(suffix.bytes(), b"789");
+        assert_eq!(suffix.content_range(), Some("bytes 7-9/10"));
+    }
+
+    #[test]
+    fn video_range_past_the_end_is_not_satisfiable() {
+        let directory = tempdir().expect("temp dir");
+        let video = directory.path().join("clip.mov");
+        std::fs::write(&video, b"0123456789").expect("video file");
+
+        let mut registry = ApprovedImageRegistry::default();
+        let approved = registry.approve_path(&video).expect("approved video");
+
+        assert!(matches!(
+            serve_approved_media(&registry, approved.id(), Some("bytes=10-")),
+            Err(ImageProtocolError::RangeNotSatisfiable { total_bytes: 10 })
+        ));
+    }
+
+    #[test]
+    fn malformed_video_range_falls_back_to_the_start_of_the_file() {
+        let directory = tempdir().expect("temp dir");
+        let video = directory.path().join("clip.mkv");
+        std::fs::write(&video, b"0123456789").expect("video file");
+
+        let mut registry = ApprovedImageRegistry::default();
+        let approved = registry.approve_path(&video).expect("approved video");
+
+        for header in ["items=0-1", "bytes=abc-def", "nonsense"] {
+            let response = serve_approved_media(&registry, approved.id(), Some(header))
+                .expect("fallback response");
+            assert_eq!(response.bytes(), b"0123456789", "{header}");
+            assert_eq!(response.content_range(), Some("bytes 0-9/10"), "{header}");
+        }
     }
 }

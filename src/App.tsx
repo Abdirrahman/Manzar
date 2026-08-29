@@ -63,6 +63,7 @@ function App() {
   const [renameDraft, setRenameDraft] = useState("");
   const [isTrashDialogOpen, setIsTrashDialogOpen] = useState(false);
   const viewerShellRef = useRef<HTMLElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const current = snapshot?.current ?? null;
   const isCurrentOversized = current?.preflight.oversized ?? false;
@@ -315,6 +316,22 @@ function App() {
     setIsOversizedDialogOpen(false);
   }, [current]);
 
+  const toggleVideoPlayback = useCallback(() => {
+    const video = videoRef.current;
+
+    if (!video) {
+      return false;
+    }
+
+    if (video.paused) {
+      void video.play().catch(() => undefined);
+    } else {
+      video.pause();
+    }
+
+    return true;
+  }, []);
+
   const minimizeWindow = useCallback(() => {
     void getCurrentWindow().minimize();
   }, []);
@@ -419,7 +436,13 @@ function App() {
         return;
       }
 
-      if (event.key === " " || event.key === "Backspace") {
+      if (event.key === " ") {
+        event.preventDefault();
+        toggleVideoPlayback();
+        return;
+      }
+
+      if (event.key === "Backspace") {
         event.preventDefault();
         return;
       }
@@ -503,6 +526,7 @@ function App() {
     openTrashDialog,
     resetActualSize,
     toggleFullscreen,
+    toggleVideoPlayback,
     zoomIn,
     zoomOut,
   ]);
@@ -584,13 +608,29 @@ function App() {
           <div
             className={`viewer-image-frame${mode === "fit" ? " viewer-image-frame--fit" : ""}`}
           >
-            <img
-              className={imageClassName}
-              style={imageStyle}
-              src={current.url}
-              alt="Current image"
-              draggable={false}
-            />
+            {current.kind === "video" ? (
+              <video
+                // Keyed so navigating away tears the element down and releases
+                // its decode buffers instead of swapping src on a live player.
+                key={current.id}
+                ref={videoRef}
+                className={imageClassName}
+                style={imageStyle}
+                src={current.url}
+                controls
+                autoPlay
+                preload="metadata"
+                aria-label="Current video"
+              />
+            ) : (
+              <img
+                className={imageClassName}
+                style={imageStyle}
+                src={current.url}
+                alt="Current image"
+                draggable={false}
+              />
+            )}
           </div>
         ) : current && shouldGateOversizedImage ? (
           <div className="empty-state">

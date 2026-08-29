@@ -4,6 +4,11 @@ use serde::Serialize;
 
 pub use super::viewed_image_descriptor::ViewerImage;
 
+/// ponytail: a flat cap with a wholesale clear, matching the preflight cache.
+/// Only the image on screen has to stay approved, so a clear costs one
+/// re-approval; per-entry eviction would need liveness tracking nothing needs yet.
+const MAX_APPROVED_IMAGES: usize = 512;
+
 use super::{
     file_actions::{self, FileActionError, TrashDeleter},
     image_registry::{ApprovedImageRegistry, ImageRegistryError},
@@ -60,7 +65,7 @@ impl ViewerSession {
         let sequence = ImageSequence::from_single_image(path, self.sequence_ordering)
             .map_err(ViewerSessionError::ImageSequence)?;
         self.sequence = Some(sequence);
-        registry.clear();
+        self.reset_caches(registry);
         self.snapshot(registry)
     }
 
@@ -72,7 +77,7 @@ impl ViewerSession {
         let sequence = ImageSequence::from_image_selection(paths, self.sequence_ordering)
             .map_err(ViewerSessionError::ImageSequence)?;
         self.sequence = Some(sequence);
-        registry.clear();
+        self.reset_caches(registry);
         self.snapshot(registry)
     }
 
@@ -84,7 +89,7 @@ impl ViewerSession {
         let sequence = ImageSequence::from_folder(folder, self.sequence_ordering)
             .map_err(ViewerSessionError::ImageSequence)?;
         self.sequence = Some(sequence);
-        registry.clear();
+        self.reset_caches(registry);
         self.snapshot(registry)
     }
 
@@ -167,10 +172,22 @@ impl ViewerSession {
         self.snapshot(registry)
     }
 
+    fn reset_caches(&mut self, registry: &mut ApprovedImageRegistry) {
+        registry.clear();
+        self.image_descriptors.clear();
+    }
+
     pub fn snapshot(
         &mut self,
         registry: &mut ApprovedImageRegistry,
     ) -> Result<ViewerSnapshot, ViewerSessionError> {
+        // Only the current image needs to stay approved, so bound the caches
+        // before adding to them; walking a large folder would otherwise retain
+        // an entry for every image ever displayed.
+        if registry.len() >= MAX_APPROVED_IMAGES {
+            self.reset_caches(registry);
+        }
+
         let Some(sequence) = &self.sequence else {
             return Ok(ViewerSnapshot {
                 current: None,
@@ -212,26 +229,26 @@ impl ViewerSessionError {
     pub fn frontend_safe_message(&self) -> &'static str {
         match self {
             Self::ImageSequence(ImageSequenceError::HiddenImage) => {
-                "hidden images are not supported"
+                "hidden files are not supported"
             }
-            Self::ImageSequence(ImageSequenceError::NoParentFolder) => "image has no parent folder",
+            Self::ImageSequence(ImageSequenceError::NoParentFolder) => "file has no parent folder",
             Self::ImageSequence(ImageSequenceError::NoSupportedImages) => {
-                "no supported images were found"
+                "no supported images or videos were found"
             }
-            Self::ImageSequence(ImageSequenceError::UnsupportedImage) => "unsupported image format",
+            Self::ImageSequence(ImageSequenceError::UnsupportedImage) => "unsupported file format",
             Self::ImageSequence(ImageSequenceError::FileSystem(error))
             | Self::ImageRegistry(ImageRegistryError::FileSystem(error))
             | Self::MetadataPreflight(MetadataPreflightError::FileSystem(error)) => {
                 if error.kind() == std::io::ErrorKind::NotFound {
-                    "image file was not found"
+                    "file was not found"
                 } else {
-                    "failed to access image file"
+                    "failed to access file"
                 }
             }
             Self::ImageRegistry(ImageRegistryError::HiddenImage) => {
-                "hidden images are not supported"
+                "hidden files are not supported"
             }
-            Self::ImageRegistry(ImageRegistryError::UnsupportedImage) => "unsupported image format",
+            Self::ImageRegistry(ImageRegistryError::UnsupportedImage) => "unsupported file format",
             Self::FileAction(FileActionError::EmptyStem) => "rename name cannot be empty",
             Self::FileAction(FileActionError::HiddenTarget) => {
                 "rename name cannot start with a dot"
@@ -240,21 +257,21 @@ impl ViewerSessionError {
                 "rename name cannot contain path separators"
             }
             Self::FileAction(FileActionError::TargetAlreadyExists) => {
-                "an image with that name already exists"
+                "a file with that name already exists"
             }
             Self::FileAction(FileActionError::TrashDeletionFailed) => {
-                "failed to move image to trash"
+                "failed to move file to trash"
             }
-            Self::FileAction(FileActionError::NoParentFolder) => "image has no parent folder",
-            Self::FileAction(FileActionError::MissingExtension) => "unsupported image format",
+            Self::FileAction(FileActionError::NoParentFolder) => "file has no parent folder",
+            Self::FileAction(FileActionError::MissingExtension) => "unsupported file format",
             Self::FileAction(FileActionError::FileSystem(error)) => {
                 if error.kind() == std::io::ErrorKind::NotFound {
-                    "image file was not found"
+                    "file was not found"
                 } else {
-                    "failed to update image file"
+                    "failed to update file"
                 }
             }
-            Self::NoCurrentImage => "no image is currently open",
+            Self::NoCurrentImage => "nothing is currently open",
         }
     }
 }
@@ -327,6 +344,34 @@ mod tests {
             .url
             .contains(directory.path().to_string_lossy().as_ref()));
         assert!(!current.preflight.oversized);
+    }
+
+    #[test]
+    fn walking_a_large_sequence_keeps_the_approved_registry_bounded() {
+        let directory = tempdir().expect("temp dir");
+        for index in 0..(MAX_APPROVED_IMAGES + 20) {
+            std::fs::write(
+                directory.path().join(format!("image{index:04}.png")),
+                b"image bytes",
+            )
+            .expect("image file");
+        }
+
+        let mut registry = ApprovedImageRegistry::default();
+        let mut session = ViewerSession::new(SequenceOrdering::NaturalName);
+        session
+            .open_folder(directory.path(), &mut registry)
+            .expect("open folder");
+
+        for _ in 0..(MAX_APPROVED_IMAGES + 20) {
+            session.next(&mut registry).expect("navigate next");
+        }
+
+        assert!(registry.len() <= MAX_APPROVED_IMAGES);
+        // The image on screen is still servable after any bounding clear.
+        let snapshot = session.snapshot(&mut registry).expect("snapshot");
+        let current = snapshot.current.expect("current image");
+        assert!(serve_approved_image(&registry, &ImageId::from_opaque(current.id)).is_ok());
     }
 
     #[test]
@@ -543,7 +588,7 @@ mod tests {
             .expect_err("unsupported image");
         let message = error.frontend_safe_message();
 
-        assert_eq!(message, "unsupported image format");
+        assert_eq!(message, "unsupported file format");
         assert!(!message.contains("private-notes"));
         assert!(!message.contains(directory.path().to_string_lossy().as_ref()));
     }
@@ -825,7 +870,7 @@ mod tests {
 
         assert_eq!(
             error.frontend_safe_message(),
-            "failed to move image to trash"
+            "failed to move file to trash"
         );
         assert_eq!(snapshot.count, 2);
         assert_eq!(snapshot.current_position, Some(1));

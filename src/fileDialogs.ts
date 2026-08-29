@@ -1,31 +1,31 @@
 import { open } from "@tauri-apps/plugin-dialog";
 
-const supportedImageExtensions = [
+// Mirrors SUPPORTED_MEDIA in src-tauri/src/core/supported_image.rs. Both cases
+// are listed because the dialog filter is case-sensitive on Linux.
+const supportedMediaExtensions = [
   "png",
   "jpg",
   "jpeg",
   "webp",
   "gif",
   "bmp",
-  "PNG",
-  "JPG",
-  "JPEG",
-  "WEBP",
-  "GIF",
-  "BMP",
-];
+  "mp4",
+  "mov",
+  "mkv",
+  "webm",
+].flatMap((extension) => [extension, extension.toUpperCase()]);
 
-const supportedImageFilter = {
-  name: "Supported Images",
-  extensions: supportedImageExtensions,
+const supportedMediaFilter = {
+  name: "Supported Images and Videos",
+  extensions: supportedMediaExtensions,
 };
 
 export async function pickImageFiles(): Promise<string[] | null> {
   const selected = await open({
-    title: "Open Image",
+    title: "Open Images or Videos",
     multiple: true,
     directory: false,
-    filters: [supportedImageFilter],
+    filters: [supportedMediaFilter],
   });
 
   if (selected === null) {

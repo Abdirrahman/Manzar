@@ -126,15 +126,18 @@ jobs:
       - name: Match PKGBUILD version to tag and refresh checksum
         run: |
           version="${GITHUB_REF_NAME#v}"
+          cd packaging/arch
           sed -i "s/^pkgver=.*/pkgver=$version/" PKGBUILD
           BUILDDIR="$GITHUB_WORKSPACE/.makepkg/build" SRCDEST="$GITHUB_WORKSPACE/.makepkg/sources" updpkgsums
           BUILDDIR="$GITHUB_WORKSPACE/.makepkg/build" SRCDEST="$GITHUB_WORKSPACE/.makepkg/sources" makepkg --printsrcinfo > .SRCINFO
           chown -R builder:builder "$GITHUB_WORKSPACE"
 
       - name: Build Pacman package
+        working-directory: packaging/arch
         run: sudo -u builder env BUILDDIR="$GITHUB_WORKSPACE/.makepkg/build" SRCDEST="$GITHUB_WORKSPACE/.makepkg/sources" makepkg --syncdeps --noconfirm --cleanbuild
 
       - name: Create package checksum
+        working-directory: packaging/arch
         run: |
           pkg_file="$(ls manzar-*.pkg.tar.zst | head -n 1)"
           sha256sum "$pkg_file" > "$pkg_file.sha256"
@@ -142,6 +145,7 @@ jobs:
       - name: Upload Arch package to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: packaging/arch
         run: |
           pkg_file="$(ls manzar-*.pkg.tar.zst | head -n 1)"
           gh release upload "$GITHUB_REF_NAME" "$pkg_file" "$pkg_file.sha256" --clobber

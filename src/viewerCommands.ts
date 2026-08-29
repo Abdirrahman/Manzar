@@ -25,9 +25,12 @@ export type ViewerSnapshot = {
   sequence_ordering: SequenceOrdering;
 };
 
+export type MediaKind = "image" | "video";
+
 export type ViewerImage = {
   id: string;
   url: string;
+  kind: MediaKind;
   preflight: ImagePreflight;
 };
 

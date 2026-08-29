@@ -5,7 +5,7 @@ use std::{
 
 use uuid::Uuid;
 
-use super::supported_image::{is_hidden_dotfile, is_supported_image};
+use super::supported_image::{is_hidden_dotfile, is_supported_media};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ImageId(String);
@@ -64,7 +64,7 @@ impl ApprovedImageRegistry {
         if is_hidden_dotfile(path) {
             return Err(ImageRegistryError::HiddenImage);
         }
-        if !is_supported_image(path) {
+        if !is_supported_media(path) {
             return Err(ImageRegistryError::UnsupportedImage);
         }
 
@@ -89,6 +89,14 @@ impl ApprovedImageRegistry {
 
     pub fn path_for(&self, id: &ImageId) -> Option<&Path> {
         self.paths_by_id.get(id).map(PathBuf::as_path)
+    }
+
+    pub fn len(&self) -> usize {
+        self.paths_by_id.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.paths_by_id.is_empty()
     }
 
     pub fn clear(&mut self) {

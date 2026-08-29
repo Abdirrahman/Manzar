@@ -42,10 +42,15 @@ coverage
 .bun
 .pnpm-store
 .makepkg
-/pkg/
-/*.pkg.tar.zst
-/*.pkg.tar.zst.sig
-/*.src.tar.gz
+pkg/
+*.pkg.tar.zst
+*.pkg.tar.zst.sig
+*.src.tar.gz
+*.tar.gz
+
+# makepkg build output (never commit an extracted source tree)
+packaging/arch/src/
+packaging/arch/pkg/
 
 # OS files
 Thumbs.db

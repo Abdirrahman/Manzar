@@ -10,10 +10,11 @@ use tauri::{
 
 use crate::core::{
     image_protocol::{
-        image_id_from_protocol_path, serve_approved_image, ImageProtocolError,
+        image_id_from_protocol_path, serve_approved_media, ImageProtocolError,
         IMAGE_PROTOCOL_SCHEME,
     },
     image_registry::ApprovedImageRegistry,
+    media_server,
     settings::UserSettings,
     viewer_session::ViewerSession,
 };
@@ -45,6 +46,12 @@ pub fn run() {
         .manage(image_registry)
         .manage(viewer_session)
         .setup(move |app| {
+            // Started before any snapshot so video descriptors can carry a
+            // playable URL. A failure is non-fatal: images still work.
+            if let Err(error) = media_server::start(Arc::clone(&setup_image_registry)) {
+                eprintln!("failed to start Manzar media server: {error}");
+            }
+
             let settings_path = settings_file_path(app);
             let settings = load_user_settings(&settings_path);
 
@@ -67,7 +74,11 @@ pub fn run() {
             Ok(())
         })
         .register_uri_scheme_protocol(IMAGE_PROTOCOL_SCHEME, move |_ctx, request| {
-            image_protocol_response(&protocol_registry, request.uri().path())
+            let range = request
+                .headers()
+                .get(header::RANGE)
+                .and_then(|value| value.to_str().ok());
+            media_protocol_response(&protocol_registry, request.uri().path(), range)
         })
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -126,7 +137,11 @@ fn open_startup_file_arguments(
     opened.map(Some).map_err(commands::CommandError::from)
 }
 
-fn image_protocol_response(registry: &SharedImageRegistry, path: &str) -> Response<Vec<u8>> {
+fn media_protocol_response(
+    registry: &SharedImageRegistry,
+    path: &str,
+    range: Option<&str>,
+) -> Response<Vec<u8>> {
     let Some(image_id) = image_id_from_protocol_path(path) else {
         return plain_text_response(StatusCode::BAD_REQUEST, "invalid image id");
     };
@@ -138,14 +153,25 @@ fn image_protocol_response(registry: &SharedImageRegistry, path: &str) -> Respon
         );
     };
 
-    match serve_approved_image(&registry, &image_id) {
-        Ok(image) => {
-            let mime_type = image.mime_type();
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, mime_type)
-                .body(image.into_bytes())
-                .expect("valid image protocol response")
+    match serve_approved_media(&registry, &image_id, range) {
+        Ok(media) => {
+            let status = if media.is_partial() {
+                StatusCode::PARTIAL_CONTENT
+            } else {
+                StatusCode::OK
+            };
+            let mut response = Response::builder()
+                .status(status)
+                .header(header::CONTENT_TYPE, media.mime_type())
+                .header(header::ACCEPT_RANGES, "bytes");
+
+            if let Some(content_range) = media.content_range() {
+                response = response.header(header::CONTENT_RANGE, content_range);
+            }
+
+            response
+                .body(media.into_bytes())
+                .expect("valid media protocol response")
         }
         Err(ImageProtocolError::UnknownImageId) => {
             plain_text_response(StatusCode::NOT_FOUND, "image not found")
@@ -156,6 +182,12 @@ fn image_protocol_response(registry: &SharedImageRegistry, path: &str) -> Respon
         Err(ImageProtocolError::OversizedImage) => {
             plain_text_response(StatusCode::PAYLOAD_TOO_LARGE, "image too large")
         }
+        Err(ImageProtocolError::RangeNotSatisfiable { total_bytes }) => Response::builder()
+            .status(StatusCode::RANGE_NOT_SATISFIABLE)
+            .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+            .header(header::CONTENT_RANGE, format!("bytes */{total_bytes}"))
+            .body(b"requested range not satisfiable".to_vec())
+            .expect("valid range error response"),
         Err(ImageProtocolError::FileSystem(error))
             if error.kind() == std::io::ErrorKind::NotFound =>
         {
@@ -186,8 +218,12 @@ mod tests {
         let directory = tempdir().expect("temp dir");
         let opened = directory.path().join("a-opened.png");
         let sibling = directory.path().join("z-sibling.jpg");
-        std::fs::write(&opened, b"opened image").expect("opened image");
+        // The sibling is written first so the opened image is the newer of the
+        // two. The default ordering is newest-modified-first, so the opened
+        // image leads whether or not both writes land on the same mtime tick:
+        // by modification time if they differ, by name if they tie.
         std::fs::write(&sibling, b"sibling image").expect("sibling image");
+        std::fs::write(&opened, b"opened image").expect("opened image");
 
         let session = SharedViewerSession::default();
         let registry = SharedImageRegistry::default();
@@ -241,9 +277,44 @@ mod tests {
                 .to_string()
         };
 
-        let response = image_protocol_response(&registry, &format!("/{id}"));
+        let response = media_protocol_response(&registry, &format!("/{id}"), None);
 
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(response.body(), b"image too large");
+    }
+
+    #[test]
+    fn video_range_request_returns_partial_content_with_a_content_range_header() {
+        let directory = tempdir().expect("temp dir");
+        let video = directory.path().join("clip.mp4");
+        std::fs::write(&video, b"0123456789").expect("test video");
+
+        let registry = SharedImageRegistry::default();
+        let id = {
+            let mut registry = registry.lock().expect("image registry");
+            registry
+                .approve_path(&video)
+                .expect("approved video")
+                .id()
+                .as_str()
+                .to_string()
+        };
+
+        let response = media_protocol_response(&registry, &format!("/{id}"), Some("bytes=2-5"));
+
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(response.body(), b"2345");
+        assert_eq!(
+            response.headers().get(header::CONTENT_RANGE).unwrap(),
+            "bytes 2-5/10"
+        );
+        assert_eq!(
+            response.headers().get(header::ACCEPT_RANGES).unwrap(),
+            "bytes"
+        );
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "video/mp4"
+        );
     }
 }

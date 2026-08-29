@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use super::supported_image::is_video;
+
 pub const MAX_SAFE_FILE_SIZE_BYTES: u64 = 200 * 1024 * 1024;
 pub const MAX_SAFE_DECODED_RGBA_BYTES: u64 = 512 * 1024 * 1024;
 
@@ -63,6 +65,18 @@ pub fn preflight_image(path: impl AsRef<Path>) -> Result<ImagePreflight, Metadat
     let path = path.as_ref();
     let metadata = std::fs::metadata(path)?;
     let file_size_bytes = metadata.len();
+
+    // Video is streamed in bounded chunks and decoded frame by frame, so neither
+    // the file-size nor the decoded-pixel budget applies. Probing it with the
+    // image decoder would also be a guaranteed-wasted read.
+    if is_video(path) {
+        return Ok(ImagePreflight {
+            file_size_bytes,
+            dimensions: None,
+            reasons: Vec::new(),
+        });
+    }
+
     let dimensions = image::image_dimensions(path)
         .ok()
         .map(|(width, height)| ImageDimensions { width, height });
@@ -169,6 +183,23 @@ mod tests {
         assert!(file_preflight.reasons().is_empty());
         assert!(!memory_preflight.is_oversized());
         assert!(memory_preflight.reasons().is_empty());
+    }
+
+    #[test]
+    fn video_is_never_oversized_regardless_of_file_size() {
+        let directory = tempdir().expect("temp dir");
+        let video = directory.path().join("huge.mkv");
+        std::fs::File::create(&video)
+            .expect("test video")
+            .set_len(MAX_SAFE_FILE_SIZE_BYTES * 10)
+            .expect("large sparse file");
+
+        let preflight = preflight_image(&video).expect("metadata preflight");
+
+        assert!(!preflight.is_oversized());
+        assert!(preflight.reasons().is_empty());
+        assert_eq!(preflight.dimensions(), None);
+        assert_eq!(preflight.file_size_bytes(), MAX_SAFE_FILE_SIZE_BYTES * 10);
     }
 
     fn write_bmp_header(path: &std::path::Path, width: i32, height: i32) {

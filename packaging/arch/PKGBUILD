@@ -3,7 +3,7 @@
 pkgname=manzar
 pkgver=0.1.1
 pkgrel=1
-pkgdesc='A simple local image viewer'
+pkgdesc='A simple local image and video viewer'
 arch=('x86_64')
 url='https://github.com/Abdirrahman/Manzar'
 license=('MIT')
@@ -16,6 +16,10 @@ depends=(
   'librsvg'
   'xdotool'
   'hicolor-icon-theme'
+  'gst-plugins-base'
+  'gst-plugins-good'
+  'gst-plugins-bad'
+  'gst-libav'
 )
 makedepends=(
   'bun'
@@ -44,12 +48,12 @@ package() {
 [Desktop Entry]
 Type=Application
 Name=Manzar
-Comment=A simple local image viewer
+Comment=A simple local image and video viewer
 Exec=manzar %F
 Icon=manzar
 Terminal=false
 Categories=Graphics;Viewer;
-MimeType=image/png;image/jpeg;image/webp;image/gif;image/bmp;
+MimeType=image/png;image/jpeg;image/webp;image/gif;image/bmp;video/mp4;video/quicktime;video/x-matroska;video/webm;
 EOF
   install -Dm644 "src-tauri/icons/32x32.png" "$pkgdir/usr/share/icons/hicolor/32x32/apps/manzar.png"
   install -Dm644 "src-tauri/icons/128x128.png" "$pkgdir/usr/share/icons/hicolor/128x128/apps/manzar.png"
