@@ -18,7 +18,7 @@ depends=(
   'hicolor-icon-theme'
   'gst-plugins-base'
   'gst-plugins-good'
-  'gst-plugins-bad'
+  'gst-plugins-bad-libs'
   'gst-libav'
 )
 makedepends=(
