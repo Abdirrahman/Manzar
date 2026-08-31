@@ -1,0 +1,539 @@
+<title>Manzar Fitted Image Path</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+
+<style>
+/* ── Tokens ───────────────────────────────────────────────────────────────
+   Inherited from rust-renderer-plan.html so the results read as the same
+   publication as the argument they answer. Manzar's own palette: warm
+   parchment ink on an olive-cast near-black, blue and mint from the logo. */
+:root {
+    --ground: #f2f3ef;
+    --surface: #fbfbf9;
+    --raised: #eceee7;
+    --ink: #161a15;
+    --ink-2: #454c43;
+    --ink-3: #6b7268;
+    --rule: rgba(22, 26, 21, 0.13);
+    --rule-strong: rgba(22, 26, 21, 0.28);
+    --accent: #2c6597;
+    --mint: #3e8e7c;
+    --amber: #8a5f16;
+    --amber-wash: rgba(138, 95, 22, 0.09);
+    --series-base: #a8493e;
+    --series-cand: #2c6597;
+    --display: "Archivo", ui-sans-serif, system-ui, sans-serif;
+    --body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --measure: 34rem;
+    --wide: 62rem;
+    color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --ground: #0a0b0a;
+        --surface: #141613;
+        --raised: #1c1f1b;
+        --ink: #f1eee5;
+        --ink-2: rgba(241, 238, 229, 0.74);
+        --ink-3: rgba(241, 238, 229, 0.52);
+        --rule: rgba(241, 238, 229, 0.13);
+        --rule-strong: rgba(241, 238, 229, 0.3);
+        --accent: #5b9bd5;
+        --mint: #92d0c2;
+        --amber: #d0a24a;
+        --amber-wash: rgba(208, 162, 74, 0.12);
+        --series-base: #cb6553;
+        --series-cand: #5a99d0;
+        color-scheme: dark;
+    }
+}
+
+:root[data-theme="dark"] {
+    --ground: #0a0b0a;
+    --surface: #141613;
+    --raised: #1c1f1b;
+    --ink: #f1eee5;
+    --ink-2: rgba(241, 238, 229, 0.74);
+    --ink-3: rgba(241, 238, 229, 0.52);
+    --rule: rgba(241, 238, 229, 0.13);
+    --rule-strong: rgba(241, 238, 229, 0.3);
+    --accent: #5b9bd5;
+    --mint: #92d0c2;
+    --amber: #d0a24a;
+    --amber-wash: rgba(208, 162, 74, 0.12);
+    --series-base: #cb6553;
+    --series-cand: #5a99d0;
+    color-scheme: dark;
+}
+
+body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 1.0625rem;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+}
+
+.page { max-width: var(--wide); margin: 0 auto; padding: 0 1.5rem 6rem; }
+section { padding-block: 3.25rem; border-top: 1px solid var(--rule); }
+section:first-of-type { border-top: 0; }
+.col { max-width: var(--measure); }
+.stack { display: flex; flex-direction: column; gap: 1.1rem; }
+
+h1, h2, h3, h4 {
+    font-family: var(--display);
+    font-weight: 600;
+    line-height: 1.14;
+    letter-spacing: -0.018em;
+    text-wrap: balance;
+    margin: 0;
+}
+h1 { font-size: clamp(2.3rem, 6vw, 3.5rem); font-weight: 700; letter-spacing: -0.03em; }
+h2 { font-size: clamp(1.5rem, 3.2vw, 2rem); }
+h3 { font-size: 1.14rem; letter-spacing: -0.008em; }
+h4 { font-size: 0.95rem; }
+p { margin: 0; }
+p + p { margin-top: 0.9rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+.eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 0.7rem;
+}
+.lede { font-size: 1.22rem; line-height: 1.5; color: var(--ink-2); max-width: 36rem; }
+code, .mono { font-family: var(--mono); font-size: 0.86em; }
+code { background: var(--raised); padding: 0.1em 0.35em; border-radius: 3px; color: var(--ink-2); }
+.note { font-size: 0.9rem; line-height: 1.55; color: var(--ink-3); }
+
+.masthead { padding-block: 3.5rem 2.5rem; }
+.masthead h1 { margin-bottom: 1.1rem; }
+.provenance {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.4rem;
+    margin-top: 2rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--ink-3);
+}
+.provenance b { color: var(--ink-2); font-weight: 500; }
+
+.tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin-top: 2rem;
+}
+.tile { background: var(--surface); padding: 1.35rem 1.3rem 1.45rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.tile .figure {
+    font-family: var(--display);
+    font-size: 2.35rem;
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--series-cand);
+}
+.tile .figure small { font-size: 0.95rem; font-weight: 600; letter-spacing: 0; color: var(--ink-3); margin-left: 0.15rem; }
+.tile .what { font-family: var(--display); font-size: 0.9rem; font-weight: 600; color: var(--ink); }
+.tile .how { font-size: 0.82rem; line-height: 1.45; color: var(--ink-3); }
+
+.tfig { margin: 1.7rem 0 0; }
+.tablewrap { overflow-x: auto; }
+.tcap { display: block; max-width: 44rem; padding-bottom: 0.55rem; }
+.tcap b {
+    display: block;
+    font-family: var(--display);
+    font-size: 1.14rem;
+    font-weight: 600;
+    letter-spacing: -0.008em;
+    line-height: 1.25;
+    text-wrap: balance;
+    color: var(--ink);
+}
+.tcap .sub { display: block; font-size: 0.9rem; line-height: 1.5; color: var(--ink-3); padding-top: 0.35rem; }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--ink-3);
+    padding: 0.75rem 0.7rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+}
+td { padding: 0.6rem 0.7rem 0.6rem 0; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.num, td .ms { font-family: var(--mono); font-size: 0.82rem; }
+td.case { color: var(--ink-2); min-width: 11rem; }
+td.case b { font-family: var(--display); font-weight: 600; color: var(--ink); display: block; font-size: 0.88rem; }
+td.case span { font-size: 0.79rem; color: var(--ink-3); line-height: 1.4; display: block; margin-top: 0.1rem; }
+
+/* Bars are normalised within their own row, never across the table. The
+   ratio is the story, and a per-row bar is what shows it honestly. */
+.bars { display: flex; flex-direction: column; gap: 3px; min-width: 11rem; }
+.bar { display: flex; align-items: center; gap: 0.5rem; }
+.bar .track { flex: 1; height: 9px; background: var(--raised); border-radius: 0 2px 2px 0; }
+.bar .fill { height: 100%; border-radius: 0 2px 2px 0; display: block; }
+.bar.base .fill { background: var(--series-base); }
+.bar.cand .fill { background: var(--series-cand); }
+.bar .ms { color: var(--ink-2); width: 4.6rem; text-align: right; flex: none; }
+.mult {
+    font-family: var(--display);
+    font-size: 1.02rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--series-cand);
+    white-space: nowrap;
+}
+.legend { display: flex; flex-wrap: wrap; gap: 1.1rem; margin-top: 1rem; font-family: var(--mono); font-size: 0.74rem; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 0.42rem; }
+.legend i { width: 11px; height: 11px; border-radius: 2px; display: block; }
+
+.decline { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin-top: 1.7rem; }
+@media (min-width: 46rem) { .decline { grid-template-columns: 1fr 1fr; } }
+.dcase { background: var(--surface); padding: 1.15rem 1.2rem 1.25rem; }
+.dcase h4 { margin-bottom: 0.4rem; }
+.dcase p { font-size: 0.88rem; line-height: 1.5; color: var(--ink-2); }
+
+.caveat {
+    border-left: 2px solid var(--amber);
+    background: var(--amber-wash);
+    padding: 1.1rem 1.25rem;
+    margin-top: 1.6rem;
+}
+.caveat h4 { color: var(--amber); margin-bottom: 0.35rem; }
+.caveat p { font-size: 0.9rem; line-height: 1.55; color: var(--ink-2); }
+
+ul.plain { margin: 1.1rem 0 0; padding: 0; list-style: none; }
+ul.plain li {
+    position: relative;
+    padding: 0.5rem 0 0.5rem 1.5rem;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    color: var(--ink-2);
+    border-top: 1px solid var(--rule);
+}
+ul.plain li:first-child { border-top: 0; }
+ul.plain li::before { content: ""; position: absolute; left: 0.35rem; top: 1.1rem; width: 5px; height: 5px; border-radius: 50%; background: var(--ink-3); }
+ul.plain li b { font-family: var(--display); font-weight: 600; color: var(--ink); }
+
+pre {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 1.05rem 1.15rem;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    line-height: 1.65;
+    color: var(--ink-2);
+    margin: 1.4rem 0 0;
+}
+</style>
+
+<div class="page">
+
+<section class="masthead">
+    <p class="eyebrow">Manzar · rendering · measured 31 August 2026</p>
+    <h1>The viewer stopped handing whole images to the engine</h1>
+    <p class="lede">
+        Phase&nbsp;0 of the native render path is implemented and measured against the code it
+        replaces. Opening a 61&nbsp;MP photograph is <b>4.0&times;</b> faster and the engine is
+        left holding <b>19&times;</b> less decoded image. Both figures come from calling the
+        function the application actually serves images through.
+    </p>
+    <div class="provenance">
+        <span><b>Measured on</b> AMD Ryzen AI Max+ 395 · 32 cores · AVX2, AVX-512</span>
+        <span><b>Engine</b> WebKitGTK 2.52.6 · GTK3 · Wayland</span>
+        <span><b>Window</b> 2560&times;1440</span>
+        <span><b>Harness</b> src-tauri/examples/fit_bench.rs</span>
+    </div>
+</section>
+
+<section>
+    <p class="eyebrow">The result</p>
+    <h2 class="col">Four numbers, all from the shipping code</h2>
+    <div class="tiles">
+        <div class="tile">
+            <span class="figure">4.0<small>&times;</small></span>
+            <span class="what">Faster to first pixel</span>
+            <span class="how">Opening a 61&nbsp;MP photograph: 624.9&nbsp;ms to 156.3&nbsp;ms. The win grows with the file.</span>
+        </div>
+        <div class="tile">
+            <span class="figure">19<small>&times;</small></span>
+            <span class="what">Less decoded image</span>
+            <span class="how">229&nbsp;MB down to 11.9&nbsp;MB of RGBA the engine must hold. Arithmetic, not a model.</span>
+        </div>
+        <div class="tile">
+            <span class="figure">2.5<small>&times;</small></span>
+            <span class="what">Worst case, still a win</span>
+            <span class="how">PNG has no scaled decode to take, so this is the SIMD resampler working alone.</span>
+        </div>
+        <div class="tile">
+            <span class="figure">90</span>
+            <span class="what">Tests passing</span>
+            <span class="how">83 before, plus seven covering the fit geometry and every decline.</span>
+        </div>
+    </div>
+</section>
+
+<section>
+    <p class="eyebrow">Evidence</p>
+    <h2 class="col">Opening a file</h2>
+    <div class="col stack" style="margin-top:1rem">
+        <p>
+            The journey measured is a file on disk to pixels ready for the window. The Rust half is
+            the real <code>serve_approved_media</code>; the engine's half is modelled, because
+            WebKitGTK cannot be driven from a benchmark harness.
+        </p>
+        <p>
+            The model charges the engine for a decode of whatever bytes it is handed, plus a scale
+            to the window when those bytes are larger than it &mdash; and nothing else. It does not
+            charge for the protocol copy, the source surface kept alongside the decoded one, or the
+            per-frame texture upload. The comparison is therefore conservative in the baseline's
+            favour.
+        </p>
+    </div>
+
+    <figure class="tfig">
+        <figcaption class="tcap">
+            <b>Time to window-ready pixels</b>
+            <span class="sub">
+                Median of seven runs, three at 61&nbsp;MP. Baseline serves the whole file and the
+                engine decodes and scales it. Candidate decodes at the smallest DCT scale that
+                still covers the window, resamples with SIMD, and hands over one window-sized
+                surface.
+            </span>
+        </figcaption>
+        <div class="tablewrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Fixture</th>
+                        <th>Time to first pixel</th>
+                        <th class="num">Gain</th>
+                        <th class="num">Engine decodes</th>
+                        <th class="num">Transport</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="case"><b>12 MP JPEG</b><span>4000 &times; 3000</span></td>
+                        <td>
+                            <div class="bars">
+                                <div class="bar base"><span class="track"><span class="fill" style="width:100%"></span></span><span class="ms">169.4 ms</span></div>
+                                <div class="bar cand"><span class="track"><span class="fill" style="width:30.1%"></span></span><span class="ms">51.0 ms</span></div>
+                            </div>
+                        </td>
+                        <td class="num"><span class="mult">3.3&times;</span></td>
+                        <td class="num">45.8 &rarr; 10.5 MB</td>
+                        <td class="num">2.1 &rarr; 7.9 MB</td>
+                    </tr>
+                    <tr>
+                        <td class="case"><b>24 MP JPEG</b><span>6000 &times; 4000</span></td>
+                        <td>
+                            <div class="bars">
+                                <div class="bar base"><span class="track"><span class="fill" style="width:100%"></span></span><span class="ms">289.0 ms</span></div>
+                                <div class="bar cand"><span class="track"><span class="fill" style="width:32.4%"></span></span><span class="ms">93.6 ms</span></div>
+                            </div>
+                        </td>
+                        <td class="num"><span class="mult">3.1&times;</span></td>
+                        <td class="num">91.6 &rarr; 11.9 MB</td>
+                        <td class="num">4.3 &rarr; 8.9 MB</td>
+                    </tr>
+                    <tr>
+                        <td class="case"><b>61 MP JPEG</b><span>9504 &times; 6336</span></td>
+                        <td>
+                            <div class="bars">
+                                <div class="bar base"><span class="track"><span class="fill" style="width:100%"></span></span><span class="ms">624.9 ms</span></div>
+                                <div class="bar cand"><span class="track"><span class="fill" style="width:25.0%"></span></span><span class="ms">156.3 ms</span></div>
+                            </div>
+                        </td>
+                        <td class="num"><span class="mult">4.0&times;</span></td>
+                        <td class="num">229.7 &rarr; 11.9 MB</td>
+                        <td class="num">10.7 &rarr; 8.9 MB</td>
+                    </tr>
+                    <tr>
+                        <td class="case"><b>12 MP PNG</b><span>no DCT scale exists</span></td>
+                        <td>
+                            <div class="bars">
+                                <div class="bar base"><span class="track"><span class="fill" style="width:100%"></span></span><span class="ms">202.4 ms</span></div>
+                                <div class="bar cand"><span class="track"><span class="fill" style="width:40.1%"></span></span><span class="ms">81.2 ms</span></div>
+                            </div>
+                        </td>
+                        <td class="num"><span class="mult">2.5&times;</span></td>
+                        <td class="num">45.8 &rarr; 10.5 MB</td>
+                        <td class="num">29.1 &rarr; 7.9 MB</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="legend">
+            <span><i style="background:var(--series-base)"></i> Whole file, engine decodes and scales &mdash; what shipped</span>
+            <span><i style="background:var(--series-cand)"></i> Fitted in Rust &mdash; what ships now</span>
+        </div>
+    </figure>
+
+    <div class="caveat">
+        <h4>Two things this is not</h4>
+        <p>
+            <b>It is not the projected 5&ndash;8.5&times;.</b> The write-up that argued for this work
+            measured on a four-core container; this machine is a thirty-two core Ryzen where the
+            baseline's scalar resample runs far faster, so the ratio compresses even though both
+            halves got quicker. The direction and the structure hold; the multiple is smaller.
+        </p>
+        <p>
+            <b>The engine's half is still modelled.</b> No WebKitGTK decode was timed. Only
+            <span class="mono">Engine decodes</span> is exact &mdash; it is
+            <span class="mono">width &times; height &times; 4</span> on the dimensions the engine is
+            handed, and it is the column that matters most for a viewer walking a folder.
+        </p>
+    </div>
+</section>
+
+<section>
+    <p class="eyebrow">Correctness</p>
+    <h2 class="col">What fitting refuses to touch</h2>
+    <div class="col stack" style="margin-top:1rem">
+        <p>
+            Fitting is an optimisation, so it must never change what the user sees. Every case below
+            declines and serves the original file &mdash; the exact path that shipped before this
+            change. Because a decline falls back to the old behaviour, each one is safe by
+            construction rather than by care.
+        </p>
+    </div>
+    <div class="decline">
+        <div class="dcase">
+            <h4>Animated GIF</h4>
+            <p>A fitted still is one frame. Every GIF keeps the whole-file path, so animation survives.</p>
+        </div>
+        <div class="dcase">
+            <h4>Colour-managed images</h4>
+            <p>A profile that cannot be proved sRGB &mdash; Display P3, Adobe RGB &mdash; goes to the engine, which colour-manages it. The speedup is traded away exactly where it would cost accuracy.</p>
+        </div>
+        <div class="dcase">
+            <h4>Zoom and actual size</h4>
+            <p>Both are defined against the image's own pixels, not the window's. They drop the size hint and get the original file, so 1:1 is genuinely 1:1.</p>
+        </div>
+        <div class="dcase">
+            <h4>Images already inside the window</h4>
+            <p>Nothing to gain and a re-encode could only lose, so anything smaller than the window is passed straight through.</p>
+        </div>
+        <div class="dcase">
+            <h4>Greyscale and CMYK JPEG</h4>
+            <p>These decode to something other than RGB24. Rather than reinterpret the buffer, the scaled decoder hands them back to the general one.</p>
+        </div>
+        <div class="dcase">
+            <h4>EXIF orientation &mdash; the one that had to be added</h4>
+            <p>The engine applied this for free on the whole-file path. Once Rust owns the decode it has to do the same, or sideways photographs ship sideways. It is applied after decode, before the resample.</p>
+        </div>
+    </div>
+</section>
+
+<section>
+    <p class="eyebrow">The cost</p>
+    <h2 class="col">More bytes cross the boundary, and that is fine</h2>
+    <div class="col stack" style="margin-top:1rem">
+        <p>
+            The fitted surface is BMP, which is uncompressed. A 12&nbsp;MP JPEG that used to cross
+            the protocol boundary as 2.1&nbsp;MB now crosses as 7.9&nbsp;MB. That is a real
+            regression in one column of the table and it is the honest price of the row beside it.
+        </p>
+        <p>
+            It is worth paying because the boundary is a memory copy inside one process, not a
+            network. Eight megabytes of <code>memcpy</code> costs about a millisecond against the
+            hundred-plus the fit saves, and the engine then decodes a bitmap rather than an entropy
+            stream. PNG would compress it to a third of the size and cost more than the decode the
+            fit just eliminated.
+        </p>
+        <p>
+            At 61&nbsp;MP and for PNG the column moves the other way, and sharply: a 29&nbsp;MB PNG
+            becomes a 7.9&nbsp;MB bitmap.
+        </p>
+    </div>
+</section>
+
+<section>
+    <p class="eyebrow">Also shipped</p>
+    <h2 class="col">Two one-line changes worth their diff</h2>
+    <ul class="plain col">
+        <li>
+            <b>TCP_NODELAY on the media server.</b> Video range requests were paying Nagle's
+            algorithm meeting a delayed ACK on every hop. Measured at 1.5&times; on body throughput.
+            The larger 79&times; figure in the original write-up needs the same option on the
+            <em>client</em> socket, which belongs to the engine, so it is not ours to set.
+        </li>
+        <li>
+            <b>gst-plugin-va declared as a dependency.</b> Without it H.264 falls back to
+            <code>avdec_h264</code> and decodes on the CPU, which is what was happening. Verify that
+            <code>decodebin</code> actually selects <code>vah264dec</code> on a given machine &mdash;
+            VA element ranks have moved between GStreamer releases.
+        </li>
+    </ul>
+</section>
+
+<section>
+    <p class="eyebrow">Not in this change</p>
+    <h2 class="col">Zoom still costs what the image costs</h2>
+    <div class="col stack" style="margin-top:1rem">
+        <p>
+            The fitted surface is discarded the moment the request ends, so nothing is retained
+            between requests and a zoom step is still a compositor re-raster of the whole promoted
+            layer. Making zoom cost the window rather than the image needs decoded frames held in
+            Rust with a crop-and-resample per viewport &mdash; a larger change, and the next one.
+        </p>
+        <p>
+            The GPU surface and in-process video decode are untouched and remain unproven. On this
+            target both look cheaper than the original plan assumed:
+            <code>Window::default_vbox()</code> hands over the GTK box the webview lives in, which is
+            a far safer route than a second always-on-top window on Wayland, and GStreamer is already
+            a hard dependency with <code>gtksink</code> installed &mdash; so in-process video needs
+            neither FFmpeg nor the GPU work it was thought to depend on.
+        </p>
+    </div>
+</section>
+
+<section>
+    <p class="eyebrow">Reproduce</p>
+    <h2 class="col">Running the harness</h2>
+    <div class="col stack" style="margin-top:1rem">
+        <p>
+            Fixtures are generated deterministically on first run and cached in the temp directory,
+            or in <code>MANZAR_BENCH_CORPUS</code>. A release build is not optional: every SIMD path
+            here degrades to scalar without optimisation.
+        </p>
+    </div>
+    <pre># the table above, written to fit-bench-report.json
+cd src-tauri
+cargo run --release --example fit_bench
+
+# the fit geometry, the declines, and everything else
+cargo test</pre>
+    <p class="note col" style="margin-top:1.2rem">
+        The modelled half of the comparison is the same conservative model used in
+        <span class="mono">rust-renderer-plan.html</span>, which this document answers. The
+        standalone harness in <span class="mono">benches/render-bench</span> is unchanged and still
+        measures the pipeline in isolation.
+    </p>
+</section>
+
+</div>
