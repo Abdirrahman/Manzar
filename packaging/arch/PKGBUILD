@@ -33,7 +33,7 @@ makedepends=(
   'git'
 )
 source=("$pkgname-$pkgver.tar.gz::https://github.com/Abdirrahman/Manzar/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('52101fc903a9638a477fdc60cc18e46ceeeb2f6561838c9a3b0cd02e0608a6cf')
+sha256sums=('14c278b45e7efa3800824ff01ad167345426faf341d930bf93499337bd989177')
 
 build() {
   cd "Manzar-$pkgver"
