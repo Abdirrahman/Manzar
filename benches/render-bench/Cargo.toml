@@ -1,0 +1,38 @@
+[package]
+name = "manzar-render-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Measures the image pipeline Manzar runs today against the Rust-native renderer proposed in ../../rust-renderer-plan.html"
+
+# Standalone: this crate is a measurement rig, deliberately kept out of the
+# shipping app's dependency tree so nothing here can leak into a release build.
+[workspace]
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "webp"] }
+fast_image_resize = "6"
+zune-jpeg = "0.5"
+zune-core = "0.5"
+jpeg-decoder = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+criterion = { version = "0.7", features = ["html_reports"] }
+
+[[bench]]
+name = "pipeline"
+harness = false
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "thin"
+
+# Benchmarks are meaningless in a debug build: every SIMD path here degrades to
+# scalar without optimisation, so the bench profile inherits the release one.
+[profile.bench]
+opt-level = 3
+codegen-units = 1
+lto = "thin"
