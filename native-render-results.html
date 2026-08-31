@@ -289,9 +289,9 @@ pre {
             <span class="how">PNG has no scaled decode to take, so this is the SIMD resampler working alone.</span>
         </div>
         <div class="tile">
-            <span class="figure">90</span>
+            <span class="figure">92</span>
             <span class="what">Tests passing</span>
-            <span class="how">83 before, plus seven covering the fit geometry and every decline.</span>
+            <span class="how">83 before, plus nine covering the fit geometry, every decline, and the query wiring.</span>
         </div>
     </div>
 </section>
@@ -392,6 +392,18 @@ pre {
             <span><i style="background:var(--series-cand)"></i> Fitted in Rust &mdash; what ships now</span>
         </div>
     </figure>
+
+    <div class="caveat">
+        <h4>Confirmed in the running application</h4>
+        <p>
+            The figures above are a harness, so the result was also checked by hand: a debug build
+            was launched against WebKitGTK&nbsp;2.52.6 on Wayland with the 12&nbsp;MP fixture, and
+            the fitted bitmap decoded and displayed correctly &mdash; no corruption, no channel
+            swap, colours intact. A test now pins the wiring underneath it, asserting that
+            <code>?w=&amp;h=</code> produces an <code>image/bmp</code> surface at 1920&times;1440
+            and that its absence still returns the original file byte for byte.
+        </p>
+    </div>
 
     <div class="caveat">
         <h4>Two things this is not</h4>
