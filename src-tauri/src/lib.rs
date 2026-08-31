@@ -78,7 +78,12 @@ pub fn run() {
                 .headers()
                 .get(header::RANGE)
                 .and_then(|value| value.to_str().ok());
-            media_protocol_response(&protocol_registry, request.uri().path(), range)
+            media_protocol_response(
+                &protocol_registry,
+                request.uri().path(),
+                range,
+                viewport_from_query(request.uri().query()),
+            )
         })
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -137,10 +142,28 @@ fn open_startup_file_arguments(
     opened.map(Some).map_err(commands::CommandError::from)
 }
 
+/// `?w=1920&h=1440` — the window the image will be shown in, in device pixels.
+/// Absent means "serve the file", which is what a zoomed view asks for.
+fn viewport_from_query(query: Option<&str>) -> Option<(u32, u32)> {
+    let mut width = None;
+    let mut height = None;
+
+    for pair in query?.split('&') {
+        match pair.split_once('=') {
+            Some(("w", value)) => width = value.parse().ok(),
+            Some(("h", value)) => height = value.parse().ok(),
+            _ => {}
+        }
+    }
+
+    Some((width?, height?))
+}
+
 fn media_protocol_response(
     registry: &SharedImageRegistry,
     path: &str,
     range: Option<&str>,
+    viewport: Option<(u32, u32)>,
 ) -> Response<Vec<u8>> {
     let Some(image_id) = image_id_from_protocol_path(path) else {
         return plain_text_response(StatusCode::BAD_REQUEST, "invalid image id");
@@ -153,7 +176,7 @@ fn media_protocol_response(
         );
     };
 
-    match serve_approved_media(&registry, &image_id, range) {
+    match serve_approved_media(&registry, &image_id, range, viewport) {
         Ok(media) => {
             let status = if media.is_partial() {
                 StatusCode::PARTIAL_CONTENT
@@ -277,7 +300,7 @@ mod tests {
                 .to_string()
         };
 
-        let response = media_protocol_response(&registry, &format!("/{id}"), None);
+        let response = media_protocol_response(&registry, &format!("/{id}"), None, None);
 
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(response.body(), b"image too large");
@@ -300,7 +323,7 @@ mod tests {
                 .to_string()
         };
 
-        let response = media_protocol_response(&registry, &format!("/{id}"), Some("bytes=2-5"));
+        let response = media_protocol_response(&registry, &format!("/{id}"), Some("bytes=2-5"), None);
 
         assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
         assert_eq!(response.body(), b"2345");

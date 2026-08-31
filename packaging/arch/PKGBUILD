@@ -1,7 +1,7 @@
 # Maintainer: Manzar contributors
 
 pkgname=manzar
-pkgver=0.1.3
+pkgver=0.1.4
 pkgrel=1
 pkgdesc='A simple local image and video viewer'
 arch=('x86_64')
@@ -20,6 +20,8 @@ depends=(
   'gst-plugins-good'
   'gst-plugins-bad-libs'
   'gst-libav'
+  # Hardware video decode. Without it H.264 falls back to avdec_h264 on the CPU.
+  'gst-plugin-va'
 )
 makedepends=(
   'bun'

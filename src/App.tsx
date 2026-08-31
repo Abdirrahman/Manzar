@@ -22,6 +22,21 @@ import {
 
 type NavigationDirection = "next" | "previous";
 
+// Rounded up to a multiple of this so dragging a window edge does not ask the
+// backend for a fresh decode on every frame. Rounding up never under-resolves.
+const viewportQuantum = 256;
+
+// The window in device pixels, which is all the backend needs to decide how
+// much of an image is worth decoding. The window is slightly larger than the
+// stage it contains, so this over-asks a little — which is the safe direction.
+function currentViewport() {
+  const ratio = window.devicePixelRatio || 1;
+  const quantise = (value: number) =>
+    Math.ceil((value * ratio) / viewportQuantum) * viewportQuantum;
+
+  return { width: quantise(window.innerWidth), height: quantise(window.innerHeight) };
+}
+
 type SequenceOrderingOption = {
   value: SequenceOrdering;
   label: string;
@@ -62,6 +77,7 @@ function App() {
   const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
   const [isTrashDialogOpen, setIsTrashDialogOpen] = useState(false);
+  const [viewport, setViewport] = useState(currentViewport);
   const viewerShellRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -90,6 +106,24 @@ function App() {
     updatePan,
     endPan,
   } = useImagePresentation(canDisplayCurrent ? (current?.id ?? null) : null);
+  useEffect(() => {
+    const update = () => setViewport(currentViewport());
+    window.addEventListener("resize", update);
+
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  // Only fit-to-window can be served a window-sized surface. Zoom and actual
+  // size are defined against the image's own pixels, so they take the original
+  // file and behave exactly as they did before fitting existed.
+  const displayUrl = useMemo(() => {
+    if (!current || current.kind === "video" || mode === "manual") {
+      return current?.url;
+    }
+
+    return `${current.url}?w=${viewport.width}&h=${viewport.height}`;
+  }, [current, mode, viewport.width, viewport.height]);
+
   const sequenceLabel = useMemo(() => {
     if (!snapshot?.current_position || snapshot.count === 0) {
       return "No image open";
@@ -616,7 +650,7 @@ function App() {
                 ref={videoRef}
                 className={imageClassName}
                 style={imageStyle}
-                src={current.url}
+                src={displayUrl}
                 controls
                 autoPlay
                 preload="metadata"
@@ -626,7 +660,7 @@ function App() {
               <img
                 className={imageClassName}
                 style={imageStyle}
-                src={current.url}
+                src={displayUrl}
                 alt="Current image"
                 draggable={false}
               />
