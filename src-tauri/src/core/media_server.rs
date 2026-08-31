@@ -63,6 +63,10 @@ pub fn start(registry: SharedImageRegistry) -> io::Result<&'static MediaServer> 
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { continue };
+            // Without this the engine's sequential range requests pay Nagle
+            // meeting a delayed ACK on every hop. Measured at 1.5x on body
+            // throughput in benches/render-bench.
+            let _ = stream.set_nodelay(true);
             let registry = registry.clone();
             let token = token.clone();
             // ponytail: one thread per connection. The webview opens a handful,

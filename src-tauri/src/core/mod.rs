@@ -4,6 +4,7 @@ pub mod image_registry;
 pub mod image_sequence;
 pub mod media_server;
 pub mod metadata_preflight;
+pub mod render;
 pub mod sequence_ordering;
 pub mod settings;
 pub mod supported_image;

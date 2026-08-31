@@ -20,6 +20,8 @@ depends=(
   'gst-plugins-good'
   'gst-plugins-bad-libs'
   'gst-libav'
+  # Hardware video decode. Without it H.264 falls back to avdec_h264 on the CPU.
+  'gst-plugin-va'
 )
 makedepends=(
   'bun'

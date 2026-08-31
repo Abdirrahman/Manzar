@@ -3,6 +3,7 @@ use std::io::{Read, Seek, SeekFrom};
 use super::{
     image_registry::{ApprovedImageRegistry, ImageId},
     metadata_preflight::MAX_SAFE_FILE_SIZE_BYTES,
+    render,
     supported_image::{media_kind, media_mime_type, MediaKind},
 };
 
@@ -85,13 +86,17 @@ pub fn serve_approved_image(
     registry: &ApprovedImageRegistry,
     id: &ImageId,
 ) -> Result<ProtocolImageResponse, ImageProtocolError> {
-    serve_approved_media(registry, id, None)
+    serve_approved_media(registry, id, None, None)
 }
 
+/// `viewport` is the window the image will be shown in, in device pixels. When
+/// it is given and the image is larger than it, the response is a fitted
+/// surface rather than the file; see [`render`].
 pub fn serve_approved_media(
     registry: &ApprovedImageRegistry,
     id: &ImageId,
     range_header: Option<&str>,
+    viewport: Option<(u32, u32)>,
 ) -> Result<ProtocolImageResponse, ImageProtocolError> {
     let path = registry
         .path_for(id)
@@ -100,11 +105,22 @@ pub fn serve_approved_media(
     let mime_type = media_mime_type(path).ok_or(ImageProtocolError::UnsupportedImage)?;
     let total_bytes = std::fs::metadata(path)?.len();
 
-    // An image is decoded whole by the webview anyway, so it is read whole and
-    // capped by size. Only video is worth streaming.
+    // An image is served whole — either fitted to the window or as the original
+    // file — and capped by size. Only video is worth streaming.
     if kind == MediaKind::Image {
         if total_bytes > MAX_SAFE_FILE_SIZE_BYTES {
             return Err(ImageProtocolError::OversizedImage);
+        }
+
+        // Fitting declines whenever it cannot improve on the file or would
+        // change what the user sees, so falling through is always correct.
+        if let Some(fitted) = viewport.and_then(|viewport| render::fit_image(path, viewport)) {
+            return Ok(ProtocolImageResponse {
+                mime_type: fitted.mime_type,
+                total_bytes: fitted.bytes.len() as u64,
+                bytes: fitted.bytes,
+                content_range: None,
+            });
         }
 
         return Ok(ProtocolImageResponse {
@@ -321,7 +337,7 @@ mod tests {
         let approved = registry.approve_path(&video).expect("approved video");
 
         let response =
-            serve_approved_media(&registry, approved.id(), None).expect("video response");
+            serve_approved_media(&registry, approved.id(), None, None).expect("video response");
 
         assert!(response.is_partial());
         assert_eq!(response.bytes().len() as u64, VIDEO_CHUNK_BYTES);
@@ -348,7 +364,7 @@ mod tests {
         let mut registry = ApprovedImageRegistry::default();
         let approved = registry.approve_path(&video).expect("approved video");
 
-        let response = serve_approved_media(&registry, approved.id(), Some("bytes=3-6"))
+        let response = serve_approved_media(&registry, approved.id(), Some("bytes=3-6"), None)
             .expect("range response");
 
         assert_eq!(response.bytes(), b"3456");
@@ -365,13 +381,13 @@ mod tests {
         let mut registry = ApprovedImageRegistry::default();
         let approved = registry.approve_path(&video).expect("approved video");
 
-        let open_ended = serve_approved_media(&registry, approved.id(), Some("bytes=7-"))
+        let open_ended = serve_approved_media(&registry, approved.id(), Some("bytes=7-"), None)
             .expect("open ended range");
         assert_eq!(open_ended.bytes(), b"789");
         assert_eq!(open_ended.content_range(), Some("bytes 7-9/10"));
 
         let suffix =
-            serve_approved_media(&registry, approved.id(), Some("bytes=-3")).expect("suffix range");
+            serve_approved_media(&registry, approved.id(), Some("bytes=-3"), None).expect("suffix range");
         assert_eq!(suffix.bytes(), b"789");
         assert_eq!(suffix.content_range(), Some("bytes 7-9/10"));
     }
@@ -386,7 +402,7 @@ mod tests {
         let approved = registry.approve_path(&video).expect("approved video");
 
         assert!(matches!(
-            serve_approved_media(&registry, approved.id(), Some("bytes=10-")),
+            serve_approved_media(&registry, approved.id(), Some("bytes=10-"), None),
             Err(ImageProtocolError::RangeNotSatisfiable { total_bytes: 10 })
         ));
     }
@@ -401,7 +417,7 @@ mod tests {
         let approved = registry.approve_path(&video).expect("approved video");
 
         for header in ["items=0-1", "bytes=abc-def", "nonsense"] {
-            let response = serve_approved_media(&registry, approved.id(), Some(header))
+            let response = serve_approved_media(&registry, approved.id(), Some(header), None)
                 .expect("fallback response");
             assert_eq!(response.bytes(), b"0123456789", "{header}");
             assert_eq!(response.content_range(), Some("bytes 0-9/10"), "{header}");
