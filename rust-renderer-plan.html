@@ -1,0 +1,1262 @@
+<title>Manzar Native Render Path</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* ── Tokens ───────────────────────────────────────────────────────────────
+   Derived from Manzar's own palette: src/App.css uses warm parchment ink
+   (#f1eee5) on an olive-cast near-black (#060707), and public/manzar-logo.svg
+   supplies the blue (#5b9bd5) and mint (#92d0c2). Light mode inverts that
+   world rather than importing a generic one.                              */
+:root {
+    --ground: #f2f3ef;
+    --surface: #fbfbf9;
+    --raised: #eceee7;
+    --ink: #161a15;
+    --ink-2: #454c43;
+    --ink-3: #6b7268;
+    --rule: rgba(22, 26, 21, 0.13);
+    --rule-strong: rgba(22, 26, 21, 0.28);
+    --accent: #2c6597;
+    --mint: #3e8e7c;
+    --amber: #8a5f16;
+    --series-base: #a8493e;
+    --series-cand: #2c6597;
+    --series-base-wash: rgba(168, 73, 62, 0.16);
+    --series-cand-wash: rgba(44, 101, 151, 0.16);
+
+    --display: "Archivo", ui-sans-serif, system-ui, sans-serif;
+    --body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    --measure: 34rem;
+    --wide: 62rem;
+
+    color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --ground: #0a0b0a;
+        --surface: #141613;
+        --raised: #1c1f1b;
+        --ink: #f1eee5;
+        --ink-2: rgba(241, 238, 229, 0.74);
+        --ink-3: rgba(241, 238, 229, 0.52);
+        --rule: rgba(241, 238, 229, 0.13);
+        --rule-strong: rgba(241, 238, 229, 0.3);
+        --accent: #5b9bd5;
+        --mint: #92d0c2;
+        --amber: #d0a24a;
+        --series-base: #cb6553;
+        --series-cand: #5a99d0;
+        --series-base-wash: rgba(203, 101, 83, 0.2);
+        --series-cand-wash: rgba(90, 153, 208, 0.2);
+        color-scheme: dark;
+    }
+}
+
+:root[data-theme="dark"] {
+    --ground: #0a0b0a;
+    --surface: #141613;
+    --raised: #1c1f1b;
+    --ink: #f1eee5;
+    --ink-2: rgba(241, 238, 229, 0.74);
+    --ink-3: rgba(241, 238, 229, 0.52);
+    --rule: rgba(241, 238, 229, 0.13);
+    --rule-strong: rgba(241, 238, 229, 0.3);
+    --accent: #5b9bd5;
+    --mint: #92d0c2;
+    --amber: #d0a24a;
+    --series-base: #cb6553;
+    --series-cand: #5a99d0;
+    --series-base-wash: rgba(203, 101, 83, 0.2);
+    --series-cand-wash: rgba(90, 153, 208, 0.2);
+    color-scheme: dark;
+}
+
+body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 1.0625rem;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: 0 1.5rem 6rem;
+}
+
+section {
+    padding-block: 3.25rem;
+    border-top: 1px solid var(--rule);
+}
+
+section:first-of-type { border-top: 0; }
+
+.col {
+    max-width: var(--measure);
+}
+
+.stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+}
+
+/* ── Type ───────────────────────────────────────────────────────────────── */
+h1, h2, h3, h4 {
+    font-family: var(--display);
+    font-weight: 600;
+    line-height: 1.14;
+    letter-spacing: -0.018em;
+    text-wrap: balance;
+    margin: 0;
+}
+
+h1 { font-size: clamp(2.3rem, 6vw, 3.5rem); font-weight: 700; letter-spacing: -0.03em; }
+h2 { font-size: clamp(1.5rem, 3.2vw, 2rem); }
+h3 { font-size: 1.14rem; letter-spacing: -0.008em; }
+h4 { font-size: 0.95rem; }
+
+p { margin: 0; }
+p + p { margin-top: 0.9rem; }
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 2px;
+}
+
+.eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 0.7rem;
+}
+
+.lede {
+    font-size: 1.22rem;
+    line-height: 1.5;
+    color: var(--ink-2);
+    max-width: 36rem;
+}
+
+code, .mono { font-family: var(--mono); font-size: 0.86em; }
+code {
+    background: var(--raised);
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    color: var(--ink-2);
+}
+
+.note {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: var(--ink-3);
+}
+
+/* ── Masthead ───────────────────────────────────────────────────────────── */
+.masthead { padding-block: 3.5rem 2.5rem; }
+
+.masthead h1 { margin-bottom: 1.1rem; }
+
+.provenance {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.4rem;
+    margin-top: 2rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--ink-3);
+}
+
+.provenance b { color: var(--ink-2); font-weight: 500; }
+
+/* ── Verdict tiles ──────────────────────────────────────────────────────── */
+.tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin-top: 2rem;
+}
+
+.tile {
+    background: var(--surface);
+    padding: 1.35rem 1.3rem 1.45rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.tile .figure {
+    font-family: var(--display);
+    font-size: 2.35rem;
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--series-cand);
+}
+
+.tile .figure small {
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: var(--ink-3);
+    margin-left: 0.15rem;
+}
+
+.tile .what {
+    font-family: var(--display);
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.tile .how { font-size: 0.82rem; line-height: 1.45; color: var(--ink-3); }
+
+/* ── Bar-in-table ───────────────────────────────────────────────────────── */
+.tfig { margin: 1.7rem 0 0; }
+.tablewrap { overflow-x: auto; }
+
+/* The heading sits outside the scroller so it wraps at the reading width
+   instead of stretching to the table's scroll width and being clipped. */
+.tcap {
+    display: block;
+    max-width: 44rem;
+    padding-bottom: 0.55rem;
+}
+
+.tcap b {
+    display: block;
+    font-family: var(--display);
+    font-size: 1.14rem;
+    font-weight: 600;
+    letter-spacing: -0.008em;
+    line-height: 1.25;
+    text-wrap: balance;
+    color: var(--ink);
+}
+
+.tcap .sub {
+    display: block;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--ink-3);
+    padding-top: 0.35rem;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+th {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--ink-3);
+    padding: 0.75rem 0.7rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+}
+
+td {
+    padding: 0.6rem 0.7rem 0.6rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: middle;
+}
+
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.num, td .ms { font-family: var(--mono); font-size: 0.82rem; }
+
+td.case { color: var(--ink-2); min-width: 12rem; }
+td.case b { font-family: var(--display); font-weight: 600; color: var(--ink); display: block; font-size: 0.88rem; }
+td.case span { font-size: 0.79rem; color: var(--ink-3); line-height: 1.4; display: block; margin-top: 0.1rem; }
+
+/* Bars are normalised within their own row, never across the table: the
+   dynamic range here spans 2.8 ms to 12,835 ms, so one shared axis would
+   flatten every row but the largest into an invisible sliver. The ratio is
+   the story, and the ratio is what a per-row bar shows honestly. */
+.bars { display: flex; flex-direction: column; gap: 3px; min-width: 11rem; }
+.bar { display: flex; align-items: center; gap: 0.5rem; }
+.bar .track { flex: 1; height: 9px; background: var(--raised); border-radius: 0 2px 2px 0; }
+.bar .fill { height: 100%; border-radius: 0 2px 2px 0; display: block; }
+.bar.base .fill { background: var(--series-base); }
+.bar.cand .fill { background: var(--series-cand); }
+.bar .ms { color: var(--ink-2); width: 5.4rem; text-align: right; flex: none; }
+
+.mult {
+    font-family: var(--display);
+    font-size: 1.02rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--series-cand);
+    white-space: nowrap;
+}
+
+.mult.flat { color: var(--ink-3); }
+
+.legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.1rem;
+    margin-top: 1rem;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--ink-2);
+}
+
+.legend span { display: inline-flex; align-items: center; gap: 0.42rem; }
+.legend i { width: 11px; height: 11px; border-radius: 2px; display: block; }
+
+/* ── Chart ──────────────────────────────────────────────────────────────── */
+.figurebox {
+    margin-top: 1.8rem;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    padding: 1.5rem 1.4rem 1.2rem;
+}
+
+.figurebox svg { display: block; width: 100%; height: auto; overflow: visible; }
+.figurebox figcaption {
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--rule);
+    font-size: 0.86rem;
+    line-height: 1.5;
+    color: var(--ink-3);
+}
+
+/* ── Pipeline diagram ───────────────────────────────────────────────────── */
+.pipes { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin-top: 1.7rem; }
+@media (min-width: 46rem) { .pipes { grid-template-columns: 1fr 1fr; } }
+
+.pipe { background: var(--surface); padding: 1.3rem 1.25rem 1.4rem; }
+.pipe h4 { margin-bottom: 0.15rem; }
+.pipe .tag {
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em;
+    text-transform: uppercase; margin-bottom: 0.85rem; display: block;
+}
+.pipe.now .tag { color: var(--series-base); }
+.pipe.next .tag { color: var(--series-cand); }
+
+.pipe ol { margin: 0.9rem 0 0; padding: 0; list-style: none; counter-reset: step; }
+.pipe li {
+    counter-increment: step;
+    position: relative;
+    padding: 0.44rem 0 0.44rem 1.75rem;
+    font-size: 0.87rem;
+    line-height: 1.45;
+    color: var(--ink-2);
+    border-top: 1px solid var(--rule);
+}
+.pipe li:first-child { border-top: 0; }
+.pipe li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0.62rem;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--ink-3);
+}
+.pipe li b { color: var(--ink); font-family: var(--display); font-weight: 600; font-size: 0.87rem; }
+.pipe .cost {
+    font-family: var(--mono); font-size: 0.74rem;
+    display: block; margin-top: 0.1rem;
+}
+.pipe.now .cost { color: var(--series-base); }
+.pipe.next .cost { color: var(--series-cand); }
+
+/* ── Phases ─────────────────────────────────────────────────────────────── */
+.phases { margin-top: 2rem; display: flex; flex-direction: column; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+
+.phase { background: var(--surface); padding: 1.5rem 1.4rem 1.6rem; }
+
+.phase-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 0.9rem; margin-bottom: 0.75rem; }
+.phase-num {
+    font-family: var(--mono); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.12em;
+    color: var(--ink-3); border: 1px solid var(--rule-strong); padding: 0.16rem 0.44rem;
+}
+.phase-head h3 { flex: 1; min-width: 12rem; }
+.effort {
+    font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.06em;
+    color: var(--ink-3); white-space: nowrap;
+}
+
+.phase > p { max-width: 44rem; font-size: 0.97rem; }
+
+.deliverables { margin: 1.1rem 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.55rem; }
+.deliverables li {
+    position: relative;
+    padding-left: 1.1rem;
+    font-size: 0.9rem; line-height: 1.5; color: var(--ink-2);
+}
+.deliverables li::before {
+    content: ""; position: absolute; left: 0; top: 0.55rem;
+    width: 5px; height: 5px;
+    background: var(--accent); border-radius: 50%;
+}
+
+.payoff {
+    margin-top: 1.2rem; padding-top: 0.95rem; border-top: 1px solid var(--rule);
+    display: flex; flex-wrap: wrap; gap: 0.45rem 1.5rem;
+    font-family: var(--mono); font-size: 0.76rem; color: var(--ink-3);
+}
+.payoff b { color: var(--series-cand); font-weight: 600; }
+.payoff .proj b { color: var(--amber); }
+
+/* ── Crate table ────────────────────────────────────────────────────────── */
+td.crate { font-family: var(--mono); font-size: 0.8rem; color: var(--ink); white-space: nowrap; }
+td.crate span { display: block; color: var(--ink-3); font-size: 0.73rem; }
+td.verdict { font-size: 0.86rem; color: var(--ink-2); }
+.pill {
+    font-family: var(--mono); font-size: 0.66rem; font-weight: 500; letter-spacing: 0.07em;
+    text-transform: uppercase; padding: 0.14rem 0.42rem; border: 1px solid currentColor;
+    white-space: nowrap; display: inline-block;
+}
+.pill.adopt { color: var(--mint); }
+.pill.reject { color: var(--series-base); }
+.pill.eval { color: var(--amber); }
+
+/* ── Callouts ───────────────────────────────────────────────────────────── */
+.callout {
+    margin-top: 1.7rem;
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--amber);
+    background: var(--surface);
+    padding: 1.15rem 1.25rem 1.25rem;
+}
+.callout .eyebrow { color: var(--amber); margin-bottom: 0.45rem; }
+.callout p { font-size: 0.93rem; max-width: 44rem; }
+
+.callout.good { border-left-color: var(--mint); }
+.callout.good .eyebrow { color: var(--mint); }
+
+pre {
+    margin: 1.2rem 0 0;
+    padding: 1rem 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    line-height: 1.7;
+    color: var(--ink-2);
+}
+pre b { color: var(--ink); font-weight: 500; }
+pre .c { color: var(--ink-3); }
+
+@media (prefers-reduced-motion: no-preference) {
+    .bar .fill { transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+}
+</style>
+
+<div class="page">
+
+<header class="masthead">
+    <p class="eyebrow">Manzar &middot; rendering architecture &middot; August 2026</p>
+    <h1>Stop handing whole images to the webview</h1>
+    <p class="lede">Manzar decodes every pixel of every file in the browser engine, then asks it to
+    re-raster the whole surface on each zoom step. Measured against a Rust pipeline that decodes
+    and scales only what the window can show: opening a file gets <b id="lede-open">5&ndash;8&times;</b> faster,
+    peak memory drops <b id="lede-mem">up to 11&times;</b>, and a zoom step stops costing anything at all.</p>
+    <div class="provenance">
+        <span><b>Measured on</b> <span id="prov-machine"></span></span>
+        <span><b>Toolchain</b> <span id="prov-rustc"></span></span>
+        <span><b>Window</b> <span id="prov-viewport"></span></span>
+        <span><b>Harness</b> benches/render-bench</span>
+    </div>
+</header>
+
+<section>
+    <div class="col">
+        <p class="eyebrow">The finding</p>
+        <h2>Four numbers decide this</h2>
+        <p style="margin-top:1rem;color:var(--ink-2)">Every figure below is a median of seven runs
+        of the harness in <code>benches/render-bench</code>, comparing two pipelines that put the
+        same pixels on the same screen. Nothing here is projected.</p>
+    </div>
+
+    <div class="tiles">
+        <div class="tile">
+            <span class="figure" id="t-open">&mdash;</span>
+            <span class="what">Faster to first pixel</span>
+            <span class="how">Opening a 61&nbsp;MP photo: <span id="t-open-detail"></span>. The
+            win grows with the file, which is where it matters.</span>
+        </div>
+        <div class="tile">
+            <span class="figure" id="t-mem">&mdash;</span>
+            <span class="what">Less peak memory</span>
+            <span class="how"><span id="t-mem-detail"></span> for the same photo, measured with a
+            tracking allocator rather than estimated.</span>
+        </div>
+        <div class="tile">
+            <span class="figure" id="t-zoom">&mdash;</span>
+            <span class="what">Cheaper zoom step</span>
+            <span class="how">At 4&times; on a 61&nbsp;MP image. More important than the multiple:
+            the native cost does not move when the image gets bigger.</span>
+        </div>
+        <div class="tile">
+            <span class="figure" id="t-resize">&mdash;</span>
+            <span class="what">Faster fit-to-window</span>
+            <span class="how">One SIMD crate swap, no architecture change, and it holds for JPEG
+            and PNG alike.</span>
+        </div>
+    </div>
+</section>
+
+<section>
+    <div class="col">
+        <p class="eyebrow">Where the cost comes from</p>
+        <h2>The pipeline as it stands</h2>
+        <p style="margin-top:1rem;color:var(--ink-2)">Manzar's Rust side is already careful. The
+        registry hands out opaque ids instead of paths, video streams through
+        <code>io::copy</code> so memory stays flat, and oversized files are gated before they are
+        served. The cost is not sloppiness &mdash; it is the division of labour. Rust reads bytes;
+        the engine does all the pixel work, at full resolution, with no idea how big the window is.</p>
+    </div>
+
+    <div class="pipes">
+        <div class="pipe now">
+            <span class="tag">Today &middot; image</span>
+            <h4>Whole file in, whole surface out</h4>
+            <ol>
+                <li><b>Read the entire file</b><span class="cost">core/image_protocol.rs &mdash; std::fs::read into a Vec</span></li>
+                <li><b>Copy it across the protocol boundary</b><span class="cost">a second copy of the same bytes</span></li>
+                <li><b>Engine decodes every pixel</b><span class="cost">width &times; height &times; 4 bytes resident &mdash; 241 MB at 61 MP</span></li>
+                <li><b>Engine scales the full surface to the window</b><span class="cost">discards 77% of those pixels at 12 MP, 95% at 61 MP</span></li>
+                <li><b>Zoom re-rasters the promoted layer</b><span class="cost">App.css sets will-change: transform on the img</span></li>
+            </ol>
+        </div>
+        <div class="pipe next">
+            <span class="tag">Proposed &middot; image</span>
+            <h4>Only the pixels the window can light</h4>
+            <ol>
+                <li><b>Read the header</b><span class="cost">dimensions only, before deciding anything</span></li>
+                <li><b>Decode at the smallest DCT scale that covers the window</b><span class="cost">1/4 scale at 61 MP &mdash; 11 MB decoded, not 241 MB</span></li>
+                <li><b>Resample to the window with SIMD convolution</b><span class="cost">fast_image_resize, AVX2 / NEON</span></li>
+                <li><b>Hand over one window-sized surface</b><span class="cost">under 10 MB, whatever the source file is</span></li>
+                <li><b>Zoom resamples the visible rectangle only</b><span class="cost">cost set by the window, not the image</span></li>
+            </ol>
+        </div>
+    </div>
+
+    <div class="callout">
+        <p class="eyebrow">How the engine's side was measured</p>
+        <p>WebKitGTK cannot be driven from a benchmark harness, so the engine's work is
+        <em>modelled</em>: a full-resolution decode with a production Rust decoder, then a
+        full-surface rescale. That model charges the webview for the decode and the scale and
+        nothing else &mdash; not the protocol copy, not the source surface it keeps alongside the
+        decoded one, not the per-frame texture upload. The engine's own decoders (libjpeg-turbo,
+        libpng) are in the same performance class as the ones used here. The comparison is
+        therefore conservative: the shipping path costs at least this much.</p>
+    </div>
+</section>
+
+<section>
+    <div class="col">
+        <p class="eyebrow">Evidence</p>
+        <h2>Opening a file</h2>
+        <p style="margin-top:1rem;color:var(--ink-2)">The whole journey: a file on disk to pixels
+        ready for the window. Peak memory is the high-water mark of live allocations during that
+        journey, recorded by a tracking <code>GlobalAlloc</code>.</p>
+    </div>
+
+    <figure class="tfig">
+        <figcaption class="tcap" id="cap-tbl-open">
+            <b>Time and peak memory to first pixel</b>
+            <span class="sub">Baseline reads the whole file, decodes every pixel and scales the
+                full surface. Candidate probes the header, decodes at the smallest DCT scale that
+                still covers the window, and resamples with SIMD.</span>
+        </figcaption>
+        <div class="tablewrap">
+            <table id="tbl-open" aria-labelledby="cap-tbl-open">
+        </table>
+        </div>
+    </figure>
+    <div class="legend">
+        <span><i style="background:var(--series-base)"></i> Reads and decodes everything &mdash; ships today</span>
+        <span><i style="background:var(--series-cand)"></i> Decodes to the window &mdash; proposed</span>
+    </div>
+</section>
+
+<section>
+    <div class="col">
+        <p class="eyebrow">Evidence</p>
+        <h2>Zooming stops scaling with the image</h2>
+        <p style="margin-top:1rem;color:var(--ink-2)">This is the structural result, and it matters
+        more than any single multiple. A compositor asked to scale a promoted layer re-rasters the
+        layer &mdash; all of it, including everything outside the window. A renderer that owns its own
+        pixels works out which source rectangle the window is looking at and resamples just that,
+        straight into a window-sized buffer.</p>
+    </div>
+
+    <figure class="figurebox">
+        <div id="chart-zoom"></div>
+        <figcaption id="chart-zoom-cap"></figcaption>
+    </figure>
+
+    <figure class="tfig">
+        <figcaption class="tcap" id="cap-tbl-zoom">
+            <b>One zoom step, by image size and zoom level</b>
+            <span class="sub">The baseline column is an upper bound: it prices an untiled
+                whole-layer re-raster, which is what <code>transform: scale()</code> on a
+                <code>will-change</code> layer asks for. A tiled compositor pays less than this,
+                but its cost still rises with how much image is on screen at device resolution,
+                and it holds the full decode throughout. The candidate column does not rise at all.</span>
+        </figcaption>
+        <div class="tablewrap">
+            <table id="tbl-zoom" aria-labelledby="cap-tbl-zoom">
+        </table>
+        </div>
+    </figure>
+</section>
+
+<section>
+    <div class="col">
+        <p class="eyebrow">Evidence</p>
+        <h2>Fit-to-window, and the decode underneath it</h2>
+        <p style="margin-top:1rem;color:var(--ink-2)">Scaling is where the largest drop-in gain
+        lives. It needs no new architecture, no protocol change and no GPU: one crate, called on a
+        buffer Manzar already has.</p>
+    </div>
+
+    <figure class="tfig">
+        <figcaption class="tcap" id="cap-tbl-resize">
+            <b>Resampling a decoded frame down to the window, Lanczos3</b>
+            <span class="sub">Both paths were asked for identical output dimensions; a test in
+                the harness asserts that. The PNG rows carry no DCT trick, so they isolate the
+                resampler gain on its own.</span>
+        </figcaption>
+        <div class="tablewrap">
+            <table id="tbl-resize" aria-labelledby="cap-tbl-resize">
+        </table>
+        </div>
+    </figure>
+
+    <figure class="tfig">
+        <figcaption class="tcap" id="cap-tbl-dct">
+            <b>Decode cost against DCT scale</b>
+            <span class="sub">A JPEG stores frequency coefficients, so a decoder can rebuild at
+                1/2, 1/4 or 1/8 size by dropping the high-frequency ones before the inverse
+                transform. Note how the curve flattens: eight-fold scaling discards 98% of the
+                pixels but only 63% of the time.</span>
+        </figcaption>
+        <div class="tablewrap">
+            <table id="tbl-dct" aria-labelledby="cap-tbl-dct">
+        </table>
+        </div>
+    </figure>
+
+    <div class="callout">
+        <p class="eyebrow">Why the curve flattens</p>
+        <p>Entropy decoding is not skippable. The Huffman pass still has to walk every coefficient
+        block in the file to find the ones it keeps, so DCT scaling only removes the back half of
+        the decode &mdash; the inverse transform, chroma upsampling and colour conversion. That
+        sets a floor of roughly 240&nbsp;ms on a 61&nbsp;MP frame no matter how small the output
+        is. Scaled decoding is worth taking, and it is not where the headline win comes from.</p>
+    </div>
+</section>
+
+<section>
+    <div class="col">
+        <p class="eyebrow">Negative results</p>
+        <h2>What the measurements rule out</h2>
+        <p style="margin-top:1rem;color:var(--ink-2)">Two changes that look obviously worth making
+        are not, and both would have cost a week.</p>
+    </div>
+
+    <figure class="tfig">
+        <figcaption class="tcap" id="cap-tbl-neg">
+            <b>Swaps that do not pay</b>
+            <span class="sub">Measured the same way as everything above.</span>
+        </figcaption>
+        <div class="tablewrap">
+            <table id="tbl-neg" aria-labelledby="cap-tbl-neg">
+        </table>
+        </div>
+    </figure>
+
+    <div class="callout good">
+        <p class="eyebrow">Do not swap the JPEG decoder</p>
+        <p><code>image</code> 0.25 already depends on <code>zune-jpeg</code> 0.5.15 &mdash; it is
+        the JPEG backend, not an alternative to it. Calling <code>zune-jpeg</code> directly
+        measures at 1.0&times;, because it is the same decoder either way. The gain that a decoder
+        swap appears to promise has already been banked; what is left on the table is the
+        <em>scale</em> it is asked to decode at, and everything downstream of it.</p>
+    </div>
+</section>
+
+<section>
+    <div class="col">
+        <p class="eyebrow">The plan</p>
+        <h2>Four phases, in dependency order</h2>
+        <p style="margin-top:1rem;color:var(--ink-2)">The phases are numbered because they are a
+        real sequence: each one is worth shipping alone, and each one makes the next smaller. Phase
+        0 is a week and banks most of the measured win. Phase 3 is the only one that needs a
+        decision Manzar has not already made.</p>
+    </div>
+
+    <div class="phases">
+        <article class="phase">
+            <div class="phase-head">
+                <span class="phase-num">Phase 0</span>
+                <h3>Move scaling into Rust</h3>
+                <span class="effort">~1 week &middot; no architecture change</span>
+            </div>
+            <p>Nothing about the process model changes. The custom protocol, the approved-id
+            registry and the oversize gate all stay exactly as they are &mdash; the response body
+            just stops being the original file. This is where the bulk of the measured gain is,
+            and it is reversible in an afternoon.</p>
+            <ul class="deliverables">
+                <li>Add <code>fast_image_resize</code> and <code>jpeg-decoder</code> to
+                <code>src-tauri/Cargo.toml</code>. Keep <code>image</code>: it stays the decoder for
+                everything that is not JPEG, and its JPEG backend is already the fast one.</li>
+                <li>In <code>core/image_protocol.rs</code>, replace <code>std::fs::read</code> for
+                images with a decode-and-fit: probe the header, pick the DCT scale that covers the
+                fitted size, resample to the window, encode once for transport.</li>
+                <li>Pass the window size from the frontend. <code>App.tsx</code> already knows it;
+                the protocol URL needs one more segment, or the snapshot command needs one more
+                field.</li>
+                <li>Keep the full-resolution path behind the existing oversize gate, so
+                &ldquo;actual size&rdquo; on a modest image is unchanged.</li>
+                <li>One line in <code>core/media_server.rs</code>: <code>stream.set_nodelay(true)</code>
+                on each accepted connection. Measured at 1.5&times; on sequential range requests.</li>
+            </ul>
+            <div class="payoff">
+                <span>Open a file <b id="p0-open">&mdash;</b></span>
+                <span>Peak memory <b id="p0-mem">&mdash;</b></span>
+                <span>Fit-to-window <b id="p0-resize">&mdash;</b></span>
+                <span>Video range requests <b id="p0-video">&mdash;</b></span>
+            </div>
+        </article>
+
+        <article class="phase">
+            <div class="phase-head">
+                <span class="phase-num">Phase 1</span>
+                <h3>Rust owns the pixels, and keeps them</h3>
+                <span class="effort">~2&ndash;3 weeks &middot; new module, same process model</span>
+            </div>
+            <p>Phase 0 still decodes on every navigation and still cannot make zoom cheap, because
+            it holds nothing between requests. Phase 1 adds the piece that does: a decoded frame
+            kept in Rust with a small mip pyramid over it. Zoom and pan become a crop and a
+            resample of the visible rectangle &mdash; the operation whose cost the measurements
+            show is flat in the image size.</p>
+            <ul class="deliverables">
+                <li>A <code>core/render_cache.rs</code> holding the current frame plus its
+                neighbours, bounded by bytes rather than count, evicting on navigation.</li>
+                <li>Serve a viewport tile per request: id, zoom, pan offset. Zoom stops being a CSS
+                transform and becomes a request, so the engine never re-rasters a promoted layer.</li>
+                <li>Drop <code>will-change: transform</code> and the <code>scale()</code> transform
+                from <code>.viewer-image--manual</code>. They are what currently promotes the image
+                to a layer the compositor must re-raster.</li>
+                <li>Decode the next and previous image in the sequence off-thread while the current
+                one is on screen. Navigation becomes a cache hit.</li>
+                <li>Transport raw BGRA rather than re-encoding to PNG &mdash; a window-sized frame
+                is ~9&nbsp;MB and the encode would cost more than the copy.</li>
+            </ul>
+            <div class="payoff">
+                <span>Zoom step at 4&times;, 61&nbsp;MP <b id="p1-zoom">&mdash;</b></span>
+                <span>Zoom cost vs image size <b>flat</b></span>
+                <span class="proj">Navigation <b>projected: cache hit</b></span>
+            </div>
+        </article>
+
+        <article class="phase">
+            <div class="phase-head">
+                <span class="phase-num">Phase 2</span>
+                <h3>Put the frame on the GPU</h3>
+                <span class="effort">~3&ndash;4 weeks &middot; evaluate before committing</span>
+            </div>
+            <p>With Phase 1 shipped, the remaining per-frame cost is a CPU resample and a copy into
+            the engine. Uploading the decoded frame as a <code>wgpu</code> texture once turns zoom
+            and pan into a uniform-matrix update and a draw call &mdash; sub-millisecond, and free
+            of the copy entirely. The catch is not the rendering; it is where the surface goes.</p>
+            <ul class="deliverables">
+                <li>Prototype first, decide second. Compositing a <code>wgpu</code> surface with a
+                webview in one window is the known-rough part of Tauri: the tracked reports describe
+                the webview and the GPU context contending for the surface, with flicker and
+                z-order problems.</li>
+                <li>Two routes worth prototyping: a second transparent always-on-top window holding
+                the GPU surface with the webview as chrome, or a native window host with the webview
+                as a child surface.</li>
+                <li>If neither prototype is clean, stop at Phase 1. It already delivers flat zoom
+                cost; Phase 2 buys smoothness during a drag, not correctness.</li>
+                <li>The same texture path is what Phase 3 needs for video, so a working prototype
+                here is a prerequisite for hardware-decoded playback, not a parallel effort.</li>
+            </ul>
+            <div class="payoff">
+                <span class="proj">Zoom and pan <b>projected: one draw call</b></span>
+                <span class="proj">Risk <b>integration, not rendering</b></span>
+            </div>
+        </article>
+
+        <article class="phase">
+            <div class="phase-head">
+                <span class="phase-num">Phase 3</span>
+                <h3>Decode video in-process</h3>
+                <span class="effort">~4&ndash;6 weeks &middot; depends on Phase 2</span>
+            </div>
+            <p>Video is the part of Manzar that is least under its own control today. The custom
+            protocol cannot serve it at all &mdash; WebKitGTK resolves <code>&lt;video&gt;</code>
+            URIs through GStreamer, which knows nothing of app-registered schemes &mdash; so
+            <code>core/media_server.rs</code> exists purely to give the engine an origin it will
+            accept. Every byte of every frame crosses a TCP socket, and the decode happens somewhere
+            Manzar cannot see or tune.</p>
+            <ul class="deliverables">
+                <li>Demux and decode in-process, presenting decoded frames as GPU textures through
+                the Phase 2 surface.</li>
+                <li>Retire the loopback HTTP server, the per-connection thread, the token and the
+                DNS-rebinding host check along with it. The security boundary gets smaller, not
+                bigger: no socket means no origin to defend.</li>
+                <li>This also retires the GStreamer plugin matrix the README currently asks Linux
+                users to install by hand.</li>
+                <li>Frame-accurate stepping, thumbnails and a scrubber become possible for the first
+                time. They are not reachable through a <code>&lt;video&gt;</code> element.</li>
+            </ul>
+            <div class="payoff">
+                <span>Transport floor <b id="p3-video">&mdash;</b></span>
+                <span class="proj">Decode <b>projected: hardware, zero-copy</b></span>
+            </div>
+        </article>
+    </div>
+</section>
+
+<section>
+    <div class="col">
+        <p class="eyebrow">Video</p>
+        <h2>What the socket costs</h2>
+        <p style="margin-top:1rem;color:var(--ink-2)">Decode dominates video playback, and decode
+        is exactly what this container has no libraries to measure &mdash; there is no FFmpeg,
+        GStreamer or dav1d here. What can be measured is the transport underneath it: the same
+        bytes, pulled through the loopback hop that ships today, against an in-process read.</p>
+    </div>
+
+    <figure class="tfig">
+        <figcaption class="tcap" id="cap-tbl-video">
+            <b>Sixteen sequential 4&nbsp;MB range requests, 256&nbsp;MB clip</b>
+            <span class="sub">The server here is a faithful copy of the write path in
+                <code>core/media_server.rs</code>, down to the <code>io::copy</code> body stream.
+                The client is a straightforward HTTP reader, not WebKit's media stack.</span>
+        </figcaption>
+        <div class="tablewrap">
+            <table id="tbl-video" aria-labelledby="cap-tbl-video">
+        </table>
+        </div>
+    </figure>
+
+    <div class="callout">
+        <p class="eyebrow">A stall worth fixing now, and one that cannot be</p>
+        <p>Isolating the hop found a flat <b>41.2&nbsp;ms per request</b> spent waiting for the
+        response head &mdash; the signature of Nagle's algorithm meeting a delayed ACK. Setting
+        <code>TCP_NODELAY</code> on the <em>client</em> collapses it to 0.8&nbsp;ms; setting it on
+        the <em>server</em> does not touch it, but does roughly triple body throughput
+        (149&nbsp;&rarr;&nbsp;431&nbsp;MB/s).</p>
+        <p>Manzar owns the server socket and should set it &mdash; that is the one-line change in
+        Phase 0. It does not own the client socket, because the client is the engine. Even with
+        both ends tuned the hop runs at 657&nbsp;MB/s against 3,691&nbsp;MB/s for an in-process
+        read. That residue is not a bug to fix; it is the argument for not having a socket.</p>
+    </div>
+</section>
+
+<section>
+    <div class="col">
+        <p class="eyebrow">Dependencies</p>
+        <h2>Crates, and the verdict on each</h2>
+        <p style="margin-top:1rem;color:var(--ink-2)">Versions are what resolved on
+        <span class="mono">crates.io</span> when this was written. The first two are the only ones
+        Phase 0 needs.</p>
+    </div>
+
+    <figure class="tfig">
+        <figcaption class="tcap" id="cap-tbl-crates">
+            <b>Candidate dependencies</b>
+        </figcaption>
+        <div class="tablewrap">
+            <table id="tbl-crates" aria-labelledby="cap-tbl-crates">
+            <thead>
+                <tr><th>Crate</th><th>Verdict</th><th>Reasoning</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="crate">fast_image_resize<span>6.1.0</span></td>
+                    <td><span class="pill adopt">Adopt &middot; P0</span></td>
+                    <td class="verdict">Runtime-dispatched AVX2 / SSE4.1 / NEON convolution. Measured
+                    16&ndash;20&times; over <code>image::imageops</code> on the same output, and it
+                    takes a crop rectangle, which is what makes flat-cost zoom possible in Phase 1.</td>
+                </tr>
+                <tr>
+                    <td class="crate">jpeg-decoder<span>0.3</span></td>
+                    <td><span class="pill adopt">Adopt &middot; P0</span></td>
+                    <td class="verdict">The only one of the two JPEG decoders exposing DCT-scaled
+                    decode via <code>Decoder::scale()</code>. Slower per pixel than
+                    <code>zune-jpeg</code>, and still ahead end-to-end because it shrinks every
+                    stage after it.</td>
+                </tr>
+                <tr>
+                    <td class="crate">image<span>0.25.10 &mdash; already in tree</span></td>
+                    <td><span class="pill adopt">Keep</span></td>
+                    <td class="verdict">Stays as the decoder for PNG, WebP, GIF and BMP, and as the
+                    header probe in <code>metadata_preflight.rs</code>. No change needed.</td>
+                </tr>
+                <tr>
+                    <td class="crate">zune-jpeg<span>0.5.15</span></td>
+                    <td><span class="pill reject">Do not add</span></td>
+                    <td class="verdict">Already the JPEG backend inside <code>image</code>. Adding
+                    it directly measures 1.0&times; because it is the same code path.</td>
+                </tr>
+                <tr>
+                    <td class="crate">wgpu<span>30.0.1</span></td>
+                    <td><span class="pill eval">Prototype &middot; P2</span></td>
+                    <td class="verdict">The rendering half is routine. The integration half &mdash;
+                    a GPU surface coexisting with a webview in a Tauri window &mdash; is the open
+                    question, and the reason Phase 2 is gated on a prototype.</td>
+                </tr>
+                <tr>
+                    <td class="crate">raw-window-handle<span>0.6.2</span></td>
+                    <td><span class="pill eval">Prototype &middot; P2</span></td>
+                    <td class="verdict">How the surface reaches the window. Needed by either Phase 2
+                    route.</td>
+                </tr>
+                <tr>
+                    <td class="crate">video-rs<span>0.11.0</span></td>
+                    <td><span class="pill eval">Prototype &middot; P3</span></td>
+                    <td class="verdict">The pragmatic route: a Rusty surface over the libav family,
+                    covering every container Manzar lists. Brings an FFmpeg build dependency, and
+                    its authors say a successor is intended to replace it.</td>
+                </tr>
+                <tr>
+                    <td class="crate">ffmpeg-next<span>9.0.0</span></td>
+                    <td><span class="pill eval">Prototype &middot; P3</span></td>
+                    <td class="verdict">What <code>video-rs</code> sits on. Worth using directly if
+                    hardware decoder selection needs control the wrapper does not expose.</td>
+                </tr>
+                <tr>
+                    <td class="crate">matroska-demuxer &middot; mp4 &middot; dav1d<span>0.8.1 &middot; 0.14.0 &middot; 0.11.1</span></td>
+                    <td><span class="pill eval">Fallback &middot; P3</span></td>
+                    <td class="verdict">A demux-and-decode stack assembled from parts, avoiding
+                    FFmpeg. More build control, materially more work, and no H.264 or HEVC decoder
+                    in the set &mdash; which MP4 and MOV need.</td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+    </figure>
+</section>
+
+<section>
+    <div class="col">
+        <p class="eyebrow">Caveats</p>
+        <h2>What this does not establish</h2>
+        <div class="stack" style="margin-top:1.1rem;color:var(--ink-2);font-size:0.97rem">
+            <p><b>The engine's side is modelled, not run.</b> No WebKitGTK, WebView2 or WKWebView
+            was measured. The model is deliberately conservative &mdash; it omits the protocol copy,
+            the retained source surface and the texture upload &mdash; but it is still a model, and
+            the true baseline is unknown rather than merely higher.</p>
+            <p><b>The app itself was not built or tested here.</b> This container has no GTK
+            development libraries, so <code>cargo test</code> in <code>src-tauri</code> cannot run.
+            The harness is standalone by design and its own six tests pass. No application source
+            was changed.</p>
+            <p><b>Every Phase 2 and Phase 3 figure is projected.</b> Nothing GPU-related and nothing
+            about video <em>decode</em> was measured, because this machine has neither a GPU nor a
+            media stack. Projections are marked in amber throughout; measured results are in blue.</p>
+            <p><b>One machine, one corpus.</b> Four cores with AVX2 and AVX-512, on synthetic images
+            built to photographic statistics rather than real camera files. The SIMD gains will be
+            smaller on a NEON laptop; the memory and flat-zoom results are structural and will not be.</p>
+            <p><b>Quality was not compared.</b> Both paths were asked for Lanczos3 at identical
+            output dimensions, and a test asserts the dimensions match &mdash; but no perceptual
+            comparison was made between a DCT-scaled decode and a full decode scaled down. That
+            check belongs in Phase 0 before it ships.</p>
+        </div>
+    </div>
+</section>
+
+<section>
+    <div class="col">
+        <p class="eyebrow">Reproduce</p>
+        <h2>Running the harness</h2>
+        <p style="margin-top:1rem;color:var(--ink-2)">The corpus is generated deterministically on
+        first run and cached, so a fresh machine and a warm one produce the same figures. Nothing
+        needs downloading.</p>
+    </div>
+    <pre><span class="c"># every figure on this page, written to report.json</span>
+<b>cd benches/render-bench</b>
+<b>cargo run --release --bin report</b>
+
+<span class="c"># the same comparisons under criterion, with confidence intervals</span>
+<b>cargo bench --bench pipeline</b>
+
+<span class="c"># invariants: aspect ratio, DCT scale never under-resolves, zoom stays</span>
+<span class="c"># bounded by the window, both resamplers agree on output size</span>
+<b>cargo test --release</b>
+
+<span class="c"># where the loopback hop spends its time</span>
+<b>cargo run --release --bin diag</b></pre>
+    <p class="note" style="margin-top:1.1rem">Set <code>MANZAR_BENCH_CORPUS</code> to keep the
+    corpus somewhere other than the temp directory. The 61&nbsp;MP fixture takes about a minute to
+    generate the first time.</p>
+</section>
+
+</div>
+<script>
+const DATA = 
+{"machine":{"cpu_cores":4,"target":"x86_64","rustc":"rustc 1.94.1 (e408947bf 2026-03-25)","simd":["sse4.1","avx2","avx512f"]},"viewport":[2560,1440],"fixtures":[{"name":"12mp","w":4000,"h":3000,"mp":12.0,"files":{"JPEG":1501168,"PNG":14388894},"decoded":48000000,"viewportBytes":8294400,"dct":[2000,1500]},{"name":"24mp","w":6000,"h":4000,"mp":24.0,"files":{"JPEG":2967467,"PNG":28764852},"decoded":96000000,"viewportBytes":9331200,"dct":[3000,2000]},{"name":"61mp","w":9504,"h":6336,"mp":60.2,"files":{"JPEG":7372997},"decoded":240869376,"viewportBytes":9331200,"dct":[2376,1584]}],"rows":[{"g":"decode","f":"12mp","d":"full-resolution decode, same pixels out","bl":"image crate (today)","cl":"zune-jpeg","b":87.29,"c":81.9,"x":1.1,"n":7,"bp":null,"cp":null},{"g":"decode-scaled","f":"12mp","d":"decode at 1/2 scale: 2000x1500 instead of 4000x3000","bl":"image crate, full decode (today)","cl":"jpeg-decoder, DCT-scaled","b":87.29,"c":90.85,"x":1.0,"n":7,"bp":null,"cp":null},{"g":"dct-curve","f":"12mp","d":"1/2 scale: 2000x1500","bl":"jpeg-decoder, full scale","cl":"jpeg-decoder, DCT-scaled","b":135.6,"c":84.03,"x":1.6,"n":7,"bp":null,"cp":null},{"g":"dct-curve","f":"12mp","d":"1/4 scale: 1000x750","bl":"jpeg-decoder, full scale","cl":"jpeg-decoder, DCT-scaled","b":135.6,"c":54.8,"x":2.5,"n":7,"bp":null,"cp":null},{"g":"dct-curve","f":"12mp","d":"1/8 scale: 500x375","bl":"jpeg-decoder, full scale","cl":"jpeg-decoder, DCT-scaled","b":135.6,"c":47.26,"x":2.9,"n":7,"bp":null,"cp":null},{"g":"resize","f":"12mp","d":"fit-to-window, Lanczos3, from a decoded frame","bl":"image::imageops (scalar)","cl":"fast_image_resize (SIMD)","b":612.46,"c":32.59,"x":18.8,"n":7,"bp":null,"cp":null},{"g":"zoom","f":"12mp","d":"one zoom step to 1x","bl":"re-raster the whole image","cl":"resample the visible rectangle","b":32.72,"c":2.77,"x":11.8,"n":7,"bp":null,"cp":null},{"g":"zoom","f":"12mp","d":"one zoom step to 2x","bl":"re-raster the whole image","cl":"resample the visible rectangle","b":352.9,"c":20.44,"x":17.3,"n":7,"bp":null,"cp":null},{"g":"zoom","f":"12mp","d":"one zoom step to 4x","bl":"re-raster the whole image","cl":"resample the visible rectangle","b":1172.28,"c":17.91,"x":65.4,"n":7,"bp":null,"cp":null},{"g":"first-pixel","f":"12mp","d":"file on disk to window-ready pixels","bl":"read whole file, decode all, scale all","cl":"scale-aware decode, SIMD fit","b":664.5,"c":104.18,"x":6.4,"n":7,"bp":137955632,"cp":27768427},{"g":"resize-png","f":"12mp","d":"PNG has no DCT scale: this is the resampler gain alone","bl":"image::imageops (scalar)","cl":"fast_image_resize (SIMD)","b":589.7,"c":31.73,"x":18.6,"n":7,"bp":null,"cp":null},{"g":"decode","f":"24mp","d":"full-resolution decode, same pixels out","bl":"image crate (today)","cl":"zune-jpeg","b":162.92,"c":160.95,"x":1.0,"n":7,"bp":null,"cp":null},{"g":"decode-scaled","f":"24mp","d":"decode at 1/2 scale: 3000x2000 instead of 6000x4000","bl":"image crate, full decode (today)","cl":"jpeg-decoder, DCT-scaled","b":162.92,"c":183.13,"x":0.9,"n":7,"bp":null,"cp":null},{"g":"dct-curve","f":"24mp","d":"1/2 scale: 3000x2000","bl":"jpeg-decoder, full scale","cl":"jpeg-decoder, DCT-scaled","b":273.07,"c":167.09,"x":1.6,"n":7,"bp":null,"cp":null},{"g":"dct-curve","f":"24mp","d":"1/4 scale: 1500x1000","bl":"jpeg-decoder, full scale","cl":"jpeg-decoder, DCT-scaled","b":273.07,"c":111.39,"x":2.5,"n":7,"bp":null,"cp":null},{"g":"dct-curve","f":"24mp","d":"1/8 scale: 750x500","bl":"jpeg-decoder, full scale","cl":"jpeg-decoder, DCT-scaled","b":273.07,"c":96.08,"x":2.8,"n":7,"bp":null,"cp":null},{"g":"resize","f":"24mp","d":"fit-to-window, Lanczos3, from a decoded frame","bl":"image::imageops (scalar)","cl":"fast_image_resize (SIMD)","b":959.55,"c":47.03,"x":20.4,"n":7,"bp":null,"cp":null},{"g":"zoom","f":"24mp","d":"one zoom step to 1x","bl":"re-raster the whole image","cl":"resample the visible rectangle","b":56.23,"c":2.4,"x":23.5,"n":7,"bp":null,"cp":null},{"g":"zoom","f":"24mp","d":"one zoom step to 2x","bl":"re-raster the whole image","cl":"resample the visible rectangle","b":613.74,"c":16.92,"x":36.3,"n":7,"bp":null,"cp":null},{"g":"zoom","f":"24mp","d":"one zoom step to 4x","bl":"re-raster the whole image","cl":"resample the visible rectangle","b":2464.45,"c":15.3,"x":161.1,"n":7,"bp":null,"cp":null},{"g":"first-pixel","f":"24mp","d":"file on disk to window-ready pixels","bl":"read whole file, decode all, scale all","cl":"scale-aware decode, SIMD fit","b":1110.85,"c":203.63,"x":5.5,"n":7,"bp":222538795,"cp":43674326},{"g":"resize-png","f":"24mp","d":"PNG has no DCT scale: this is the resampler gain alone","bl":"image::imageops (scalar)","cl":"fast_image_resize (SIMD)","b":937.96,"c":47.18,"x":19.9,"n":7,"bp":null,"cp":null},{"g":"decode","f":"61mp","d":"full-resolution decode, same pixels out","bl":"image crate (today)","cl":"zune-jpeg","b":387.79,"c":376.37,"x":1.0,"n":7,"bp":null,"cp":null},{"g":"decode-scaled","f":"61mp","d":"decode at 1/4 scale: 2376x1584 instead of 9504x6336","bl":"image crate, full decode (today)","cl":"jpeg-decoder, DCT-scaled","b":387.79,"c":275.18,"x":1.4,"n":7,"bp":null,"cp":null},{"g":"dct-curve","f":"61mp","d":"1/2 scale: 4752x3168","bl":"jpeg-decoder, full scale","cl":"jpeg-decoder, DCT-scaled","b":641.21,"c":424.33,"x":1.5,"n":7,"bp":null,"cp":null},{"g":"dct-curve","f":"61mp","d":"1/4 scale: 2376x1584","bl":"jpeg-decoder, full scale","cl":"jpeg-decoder, DCT-scaled","b":641.21,"c":272.81,"x":2.4,"n":7,"bp":null,"cp":null},{"g":"dct-curve","f":"61mp","d":"1/8 scale: 1188x792","bl":"jpeg-decoder, full scale","cl":"jpeg-decoder, DCT-scaled","b":641.21,"c":245.4,"x":2.6,"n":7,"bp":null,"cp":null},{"g":"resize","f":"61mp","d":"fit-to-window, Lanczos3, from a decoded frame","bl":"image::imageops (scalar)","cl":"fast_image_resize (SIMD)","b":1906.68,"c":111.28,"x":17.1,"n":7,"bp":null,"cp":null},{"g":"zoom","f":"61mp","d":"one zoom step to 1x","bl":"re-raster the whole image","cl":"resample the visible rectangle","b":129.69,"c":2.46,"x":52.8,"n":7,"bp":null,"cp":null},{"g":"zoom","f":"61mp","d":"one zoom step to 2x","bl":"re-raster the whole image","cl":"resample the visible rectangle","b":3010.78,"c":17.41,"x":172.9,"n":7,"bp":null,"cp":null},{"g":"zoom","f":"61mp","d":"one zoom step to 4x","bl":"re-raster the whole image","cl":"resample the visible rectangle","b":11007.07,"c":15.35,"x":717.2,"n":7,"bp":null,"cp":null},{"g":"first-pixel","f":"61mp","d":"file on disk to window-ready pixels","bl":"read whole file, decode all, scale all","cl":"scale-aware decode, SIMD fit","b":2558.54,"c":302.15,"x":8.5,"n":7,"bp":416328517,"cp":38612336},{"g":"video-transport","f":"256mb-clip","d":"16 sequential 4 MB range requests","bl":"loopback HTTP, as shipped","cl":"in-process read","b":1163.97,"c":14.66,"x":79.4,"n":7,"bp":null,"cp":null},{"g":"video-transport-nodelay","f":"256mb-clip","d":"16 sequential 4 MB range requests; server-side TCP_NODELAY only","bl":"loopback HTTP, as shipped","cl":"loopback HTTP, Nagle disabled","b":1163.97,"c":782.14,"x":1.5,"n":7,"bp":null,"cp":null}]}
+;
+
+/* ── Formatting ─────────────────────────────────────────────────────────── */
+const ms = (v) => v >= 1000 ? (v / 1000).toFixed(2) + " s" : v.toFixed(v < 10 ? 2 : 1) + " ms";
+const mb = (b) => (b / 1e6).toFixed(b < 1e7 ? 1 : 0) + " MB";
+const mult = (x) => (x >= 10 ? Math.round(x) : x.toFixed(1)) + "×";
+const rows = (g) => DATA.rows.filter((r) => r.g === g);
+const one = (g, f) => DATA.rows.find((r) => r.g === g && r.f === f);
+const fixture = (name) => DATA.fixtures.find((f) => f.name === name);
+const mp = (name) => fixture(name).mp + " MP";
+
+/* Bars are normalised inside their own row. See the note in the stylesheet:
+   the table spans 2.8 ms to 12,835 ms, so a shared axis would erase every row
+   but the largest. */
+function barPair(baseline, candidate) {
+    const peak = Math.max(baseline, candidate);
+    const bar = (cls, value) =>
+        `<div class="bar ${cls}"><span class="track"><span class="fill" style="width:${
+            Math.max((value / peak) * 100, 1.2)}%"></span></span><span class="ms">${ms(value)}</span></div>`;
+    return `<div class="bars">${bar("base", baseline)}${bar("cand", candidate)}</div>`;
+}
+
+function table(id, headers, body) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.insertAdjacentHTML("beforeend",
+        `<thead><tr>${headers.map((h) =>
+            `<th${h.num ? ' class="num"' : ""}>${h.label}</th>`).join("")}</tr></thead>` +
+        `<tbody>${body}</tbody>`);
+}
+
+/* ── Provenance and headline figures ────────────────────────────────────── */
+document.getElementById("prov-machine").textContent =
+    `${DATA.machine.cpu_cores} cores, ${DATA.machine.target}, ${DATA.machine.simd.join(" / ")}`;
+document.getElementById("prov-rustc").textContent = DATA.machine.rustc.replace("rustc ", "");
+document.getElementById("prov-viewport").textContent = DATA.viewport.join(" × ");
+
+const open61 = one("first-pixel", "61mp");
+const openAll = rows("first-pixel");
+const zoom61 = DATA.rows.find((r) => r.g === "zoom" && r.f === "61mp" && r.d.includes("4x"));
+const resizeAll = [...rows("resize"), ...rows("resize-png")];
+
+const figure = (id, value, suffix) => {
+    const el = document.getElementById(id);
+    el.innerHTML = value + (suffix ? `<small>${suffix}</small>` : "");
+};
+figure("t-open", mult(Math.min(...openAll.map((r) => r.x))) + "–" + mult(Math.max(...openAll.map((r) => r.x))));
+figure("t-mem", mult(open61.bp / open61.cp));
+figure("t-zoom", mult(zoom61.x));
+figure("t-resize", mult(Math.min(...resizeAll.map((r) => r.x))) + "–" + mult(Math.max(...resizeAll.map((r) => r.x))));
+document.getElementById("lede-open").textContent =
+    openAll.map((r) => r.x).reduce((a, b) => Math.min(a, b)).toFixed(1).replace(/\.0$/, "") + "–" +
+    openAll.map((r) => r.x).reduce((a, b) => Math.max(a, b)).toFixed(1).replace(/\.0$/, "") + "×";
+document.getElementById("lede-mem").textContent = "up to " + mult(open61.bp / open61.cp);
+document.getElementById("t-open-detail").textContent = `${ms(open61.b)} → ${ms(open61.c)}`;
+document.getElementById("t-mem-detail").textContent = `${mb(open61.bp)} → ${mb(open61.cp)}`;
+
+/* ── Phase payoff figures ───────────────────────────────────────────────── */
+const video = one("video-transport", "256mb-clip");
+const videoNodelay = one("video-transport-nodelay", "256mb-clip");
+const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+set("p0-open", mult(Math.min(...openAll.map((r) => r.x))) + "–" + mult(Math.max(...openAll.map((r) => r.x))) + " faster");
+set("p0-mem", "up to " + mult(open61.bp / open61.cp) + " lower");
+set("p0-resize", mult(Math.min(...resizeAll.map((r) => r.x))) + "–" + mult(Math.max(...resizeAll.map((r) => r.x))) + " faster");
+set("p0-video", mult(videoNodelay.x) + " faster");
+set("p1-zoom", mult(zoom61.x) + " cheaper");
+set("p3-video", mult(video.x) + " over the socket");
+
+/* ── Opening a file ─────────────────────────────────────────────────────── */
+table("tbl-open",
+    [{ label: "Image" }, { label: "Time to first pixel" }, { label: "Faster", num: true },
+     { label: "Peak memory", num: true }, { label: "Lower", num: true }],
+    rows("first-pixel").map((r) => {
+        const f = fixture(r.f);
+        return `<tr>
+            <td class="case"><b>${f.mp} MP</b><span>${f.w}×${f.h} · decoded whole, that is ${mb(f.decoded)} of RGBA</span></td>
+            <td>${barPair(r.b, r.c)}</td>
+            <td class="num"><span class="mult">${mult(r.x)}</span></td>
+            <td class="num"><span class="ms">${mb(r.bp)} → ${mb(r.cp)}</span></td>
+            <td class="num"><span class="mult">${mult(r.bp / r.cp)}</span></td>
+        </tr>`;
+    }).join(""));
+
+/* ── Zoom ───────────────────────────────────────────────────────────────── */
+table("tbl-zoom",
+    [{ label: "Image" }, { label: "Zoom" }, { label: "Cost of one step" }, { label: "Cheaper", num: true }],
+    rows("zoom").map((r) => {
+        const level = r.d.match(/to (\d+)x/)[1];
+        return `<tr>
+            <td class="case"><b>${mp(r.f)}</b></td>
+            <td class="mono" style="color:var(--ink-2)">${level}×</td>
+            <td>${barPair(r.b, r.c)}</td>
+            <td class="num"><span class="mult">${mult(r.x)}</span></td>
+        </tr>`;
+    }).join(""));
+
+/* ── Resize and DCT ─────────────────────────────────────────────────────── */
+const resizeRows = [...rows("resize"), ...rows("resize-png")];
+table("tbl-resize",
+    [{ label: "Image" }, { label: "Format" }, { label: "Resample to window" }, { label: "Faster", num: true }],
+    resizeRows.map((r) => `<tr>
+        <td class="case"><b>${mp(r.f)}</b><span>${r.g === "resize-png" ? "resampler gain in isolation" : "decoded frame in, window-sized frame out"}</span></td>
+        <td class="mono" style="color:var(--ink-2)">${r.g === "resize-png" ? "PNG" : "JPEG"}</td>
+        <td>${barPair(r.b, r.c)}</td>
+        <td class="num"><span class="mult">${mult(r.x)}</span></td>
+    </tr>`).join(""));
+
+table("tbl-dct",
+    [{ label: "Image" }, { label: "Scale" }, { label: "Output" }, { label: "Decode time" }, { label: "Faster", num: true }],
+    rows("dct-curve").map((r) => {
+        const [, divisor, size] = r.d.match(/1\/(\d) scale: (\S+)/);
+        return `<tr>
+            <td class="case"><b>${mp(r.f)}</b></td>
+            <td class="mono" style="color:var(--ink-2)">1/${divisor}</td>
+            <td class="mono" style="color:var(--ink-3)">${size.replace("x", "×")}</td>
+            <td>${barPair(r.b, r.c)}</td>
+            <td class="num"><span class="mult">${mult(r.x)}</span></td>
+        </tr>`;
+    }).join(""));
+
+/* ── Negative results ───────────────────────────────────────────────────── */
+const negRows = DATA.rows.filter((r) => r.g === "decode" || r.g === "decode-scaled");
+table("tbl-neg",
+    [{ label: "Change" }, { label: "Image" }, { label: "Measured" }, { label: "Result", num: true }],
+    negRows.map((r) => {
+        const gain = r.x >= 1.15;
+        return `<tr>
+            <td class="case"><b>${r.g === "decode" ? "Call zune-jpeg directly" : "DCT-scaled decode, on its own"}</b><span>${
+                r.g === "decode" ? "instead of through the image crate" : r.d}</span></td>
+            <td class="mono" style="color:var(--ink-2)">${mp(r.f)}</td>
+            <td>${barPair(r.b, r.c)}</td>
+            <td class="num"><span class="mult${gain ? "" : " flat"}">${gain ? mult(r.x) : (r.x < 1 ? "slower" : "no change")}</span></td>
+        </tr>`;
+    }).join(""));
+
+/* ── Video transport ────────────────────────────────────────────────────── */
+table("tbl-video",
+    [{ label: "Comparison" }, { label: "64 MB pulled through" }, { label: "Faster", num: true }],
+    [[video, "Remove the hop entirely", "in-process read, what Phase 3 does"],
+     [videoNodelay, "Disable Nagle on the server", "one line, available today, Phase 0"]]
+    .map(([r, title, sub]) => `<tr>
+        <td class="case"><b>${title}</b><span>${sub}</span></td>
+        <td>${barPair(r.b, r.c)}</td>
+        <td class="num"><span class="mult">${mult(r.x)}</span></td>
+    </tr>`).join(""));
+</script>
+
+<script>
+/* ── Zoom cost against image size ───────────────────────────────────────────
+   Form: magnitude across an ordered numeric dimension, two series — a line
+   chart. The y axis is log10 because the two series differ by three orders of
+   magnitude; on a linear axis the flat series would sit on the baseline and the
+   result would be unreadable. The axis is labelled as logarithmic and every
+   point is directly labelled, so the scale cannot mislead.                   */
+(function drawZoomChart() {
+    const host = document.getElementById("chart-zoom");
+    if (!host) return;
+
+    const at4x = (name) => DATA.rows.find((r) => r.g === "zoom" && r.f === name && r.d.includes("4x"));
+    const points = DATA.fixtures.map((f) => {
+        const row = at4x(f.name);
+        return { mp: f.mp, label: f.mp + " MP", baseline: row.b, candidate: row.c, x: row.x };
+    });
+
+    const W = 720, H = 330;
+    const pad = { top: 18, right: 104, bottom: 46, left: 58 };
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+
+    const minMp = Math.min(...points.map((p) => p.mp));
+    const maxMp = Math.max(...points.map((p) => p.mp));
+    const sx = (v) => pad.left + ((v - minMp) / (maxMp - minMp)) * plotW;
+
+    const decades = [1, 10, 100, 1000, 10000];
+    const lo = Math.log10(1), hi = Math.log10(20000);
+    const sy = (v) => pad.top + plotH - ((Math.log10(v) - lo) / (hi - lo)) * plotH;
+
+    const series = [
+        { key: "baseline", name: "Re-raster the whole image", color: "var(--series-base)" },
+        { key: "candidate", name: "Resample the visible rectangle", color: "var(--series-cand)" },
+    ];
+
+    const grid = decades.map((d) =>
+        `<line x1="${pad.left}" x2="${pad.left + plotW}" y1="${sy(d).toFixed(1)}" y2="${sy(d).toFixed(1)}"
+               stroke="var(--rule)" stroke-width="1"/>
+         <text x="${pad.left - 10}" y="${(sy(d) + 4).toFixed(1)}" text-anchor="end"
+               font-family="var(--mono)" font-size="10" fill="var(--ink-3)">${d >= 1000 ? d / 1000 + " s" : d + " ms"}</text>`
+    ).join("");
+
+    const xTicks = points.map((p) =>
+        `<text x="${sx(p.mp).toFixed(1)}" y="${H - 22}" text-anchor="middle"
+               font-family="var(--mono)" font-size="10.5" fill="var(--ink-3)">${p.label}</text>`
+    ).join("");
+
+    const lines = series.map((s) => {
+        const path = points.map((p, i) =>
+            `${i ? "L" : "M"}${sx(p.mp).toFixed(1)} ${sy(p[s.key]).toFixed(1)}`).join(" ");
+        const marks = points.map((p) =>
+            /* 2px surface ring keeps a marker legible where it overlaps the line. */
+            `<circle cx="${sx(p.mp).toFixed(1)}" cy="${sy(p[s.key]).toFixed(1)}" r="5"
+                     fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`).join("");
+        const last = points[points.length - 1];
+        return `<path d="${path}" fill="none" stroke="${s.color}" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round"/>${marks}
+                <text x="${(sx(last.mp) + 13).toFixed(1)}" y="${(sy(last[s.key]) + 4).toFixed(1)}"
+                      font-family="var(--mono)" font-size="10.5" font-weight="500" fill="${s.color}">${ms(last[s.key])}</text>`;
+    }).join("");
+
+    /* Direct value labels on the interior points, offset away from the line. */
+    const valueLabels = series.map((s) => points.slice(0, -1).map((p, i) => {
+        // The leftmost point sits on the y axis, so centring its label would put
+        // it across the axis line and its tick text. Anchor that one to the right.
+        const first = i === 0;
+        return `<text x="${(sx(p.mp) + (first ? 11 : 0)).toFixed(1)}"
+                      y="${(sy(p[s.key]) + (s.key === "baseline" ? -13 : 19)).toFixed(1)}"
+                      text-anchor="${first ? "start" : "middle"}"
+                      font-family="var(--mono)" font-size="10" fill="var(--ink-3)">${ms(p[s.key])}</text>`;
+    }).join("")).join("");
+
+    host.innerHTML =
+        `<svg viewBox="0 0 ${W} ${H}" role="img"
+              aria-label="Cost of one zoom step to 4× against image size. Whole-image re-raster climbs from 1.9 seconds at 12 megapixels to 12.8 seconds at 61 megapixels, while resampling only the visible rectangle stays near 17 milliseconds throughout.">
+            ${grid}${xTicks}
+            <line x1="${pad.left}" x2="${pad.left}" y1="${pad.top}" y2="${pad.top + plotH}" stroke="var(--rule-strong)" stroke-width="1"/>
+            ${lines}${valueLabels}
+        </svg>
+        <div class="legend" style="margin-top:0.9rem">
+            ${series.map((s) => `<span><i style="background:${s.color}"></i> ${s.name}</span>`).join("")}
+            <span style="color:var(--ink-3)">logarithmic scale</span>
+        </div>`;
+
+    document.getElementById("chart-zoom-cap").innerHTML =
+        `One zoom step to 4×, by image size. The whole-image path grows with the file — ${
+            ms(points[0].baseline)} at ${points[0].label}, ${ms(points[2].baseline)} at ${points[2].label
+        }. The viewport path does not move: ${ms(points[0].candidate)} and ${ms(points[2].candidate)
+        } for the same two images, because it only ever produces ${DATA.viewport.join(" × ")} pixels. That flatness is the property worth having; the ${
+            mult(points[2].x)} multiple is a consequence of it.`;
+})();
+</script>

@@ -1,0 +1,898 @@
+{
+  "machine": {
+    "cpu_cores": 4,
+    "target": "x86_64",
+    "rustc": "rustc 1.94.1 (e408947bf 2026-03-25)",
+    "simd": [
+      "sse4.1",
+      "avx2",
+      "avx512f"
+    ]
+  },
+  "viewport": [
+    2560,
+    1440
+  ],
+  "fixtures": [
+    {
+      "name": "12mp",
+      "width": 4000,
+      "height": 3000,
+      "megapixels": 12.0,
+      "file_bytes": [
+        [
+          "JPEG",
+          1501168
+        ],
+        [
+          "PNG",
+          14388894
+        ]
+      ],
+      "decoded_rgba_bytes": 48000000,
+      "viewport_rgb_bytes": 8294400,
+      "dct_scaled_to": [
+        2000,
+        1500
+      ]
+    },
+    {
+      "name": "24mp",
+      "width": 6000,
+      "height": 4000,
+      "megapixels": 24.0,
+      "file_bytes": [
+        [
+          "JPEG",
+          2967467
+        ],
+        [
+          "PNG",
+          28764852
+        ]
+      ],
+      "decoded_rgba_bytes": 96000000,
+      "viewport_rgb_bytes": 9331200,
+      "dct_scaled_to": [
+        3000,
+        2000
+      ]
+    },
+    {
+      "name": "61mp",
+      "width": 9504,
+      "height": 6336,
+      "megapixels": 60.217344,
+      "file_bytes": [
+        [
+          "JPEG",
+          7372997
+        ]
+      ],
+      "decoded_rgba_bytes": 240869376,
+      "viewport_rgb_bytes": 9331200,
+      "dct_scaled_to": [
+        2376,
+        1584
+      ]
+    }
+  ],
+  "comparisons": [
+    {
+      "group": "decode",
+      "fixture": "12mp",
+      "detail": "full-resolution decode, same pixels out",
+      "baseline_label": "image crate (today)",
+      "candidate_label": "zune-jpeg",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 83.292091,
+        "median_ms": 87.290322,
+        "mean_ms": 86.89687900000001,
+        "max_ms": 91.171732
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 81.039888,
+        "median_ms": 81.899059,
+        "mean_ms": 82.17147485714285,
+        "max_ms": 84.395633
+      },
+      "speedup": 1.0658281433978383,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "decode-scaled",
+      "fixture": "12mp",
+      "detail": "decode at 1/2 scale: 2000x1500 instead of 4000x3000",
+      "baseline_label": "image crate, full decode (today)",
+      "candidate_label": "jpeg-decoder, DCT-scaled",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 83.292091,
+        "median_ms": 87.290322,
+        "mean_ms": 86.89687900000001,
+        "max_ms": 91.171732
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 90.14301800000001,
+        "median_ms": 90.849057,
+        "mean_ms": 91.03072114285715,
+        "max_ms": 92.010918
+      },
+      "speedup": 0.9608280468998154,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "dct-curve",
+      "fixture": "12mp",
+      "detail": "1/2 scale: 2000x1500",
+      "baseline_label": "jpeg-decoder, full scale",
+      "candidate_label": "jpeg-decoder, DCT-scaled",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 134.34316299999998,
+        "median_ms": 135.599907,
+        "mean_ms": 135.69385242857143,
+        "max_ms": 137.176126
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 83.227391,
+        "median_ms": 84.032186,
+        "mean_ms": 84.13323228571427,
+        "max_ms": 85.565354
+      },
+      "speedup": 1.6136663040040398,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "dct-curve",
+      "fixture": "12mp",
+      "detail": "1/4 scale: 1000x750",
+      "baseline_label": "jpeg-decoder, full scale",
+      "candidate_label": "jpeg-decoder, DCT-scaled",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 134.34316299999998,
+        "median_ms": 135.599907,
+        "mean_ms": 135.69385242857143,
+        "max_ms": 137.176126
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 54.094495,
+        "median_ms": 54.804952,
+        "mean_ms": 55.44069771428572,
+        "max_ms": 58.522123
+      },
+      "speedup": 2.4742272742069003,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "dct-curve",
+      "fixture": "12mp",
+      "detail": "1/8 scale: 500x375",
+      "baseline_label": "jpeg-decoder, full scale",
+      "candidate_label": "jpeg-decoder, DCT-scaled",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 134.34316299999998,
+        "median_ms": 135.599907,
+        "mean_ms": 135.69385242857143,
+        "max_ms": 137.176126
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 46.942128,
+        "median_ms": 47.264044,
+        "mean_ms": 47.29893285714286,
+        "max_ms": 47.995791000000004
+      },
+      "speedup": 2.8689865598466353,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "resize",
+      "fixture": "12mp",
+      "detail": "fit-to-window, Lanczos3, from a decoded frame",
+      "baseline_label": "image::imageops (scalar)",
+      "candidate_label": "fast_image_resize (SIMD)",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 595.1294369999999,
+        "median_ms": 612.460589,
+        "mean_ms": 617.1207388571428,
+        "max_ms": 638.703089
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 32.014677999999996,
+        "median_ms": 32.586928,
+        "mean_ms": 33.36718285714286,
+        "max_ms": 36.286197
+      },
+      "speedup": 18.794670949038217,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "zoom",
+      "fixture": "12mp",
+      "detail": "one zoom step to 1x",
+      "baseline_label": "re-raster the whole image",
+      "candidate_label": "resample the visible rectangle",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 31.299788000000003,
+        "median_ms": 32.722527,
+        "mean_ms": 32.36099214285714,
+        "max_ms": 32.894879
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 2.57576,
+        "median_ms": 2.7743960000000003,
+        "mean_ms": 2.900660428571429,
+        "max_ms": 3.2818650000000003
+      },
+      "speedup": 11.79446877806917,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "zoom",
+      "fixture": "12mp",
+      "detail": "one zoom step to 2x",
+      "baseline_label": "re-raster the whole image",
+      "candidate_label": "resample the visible rectangle",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 341.30571799999996,
+        "median_ms": 352.90234999999996,
+        "mean_ms": 349.53820671428576,
+        "max_ms": 356.61388999999997
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 19.615911999999998,
+        "median_ms": 20.436712999999997,
+        "mean_ms": 20.716245714285712,
+        "max_ms": 23.67087
+      },
+      "speedup": 17.268058224431687,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "zoom",
+      "fixture": "12mp",
+      "detail": "one zoom step to 4x",
+      "baseline_label": "re-raster the whole image",
+      "candidate_label": "resample the visible rectangle",
+      "baseline": {
+        "samples": 6,
+        "min_ms": 1159.535216,
+        "median_ms": 1172.2825950000001,
+        "mean_ms": 1178.5839156666668,
+        "max_ms": 1226.030377
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 17.507861,
+        "median_ms": 17.912917,
+        "mean_ms": 17.910838714285713,
+        "max_ms": 18.289313
+      },
+      "speedup": 65.44342247552423,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "first-pixel",
+      "fixture": "12mp",
+      "detail": "file on disk to window-ready pixels",
+      "baseline_label": "read whole file, decode all, scale all",
+      "candidate_label": "scale-aware decode, SIMD fit",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 643.3333650000001,
+        "median_ms": 664.497511,
+        "mean_ms": 658.8121584285715,
+        "max_ms": 672.317365
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 101.923037,
+        "median_ms": 104.180339,
+        "mean_ms": 105.48392757142857,
+        "max_ms": 113.42361
+      },
+      "speedup": 6.378338920551986,
+      "baseline_peak_bytes": 137955632,
+      "candidate_peak_bytes": 27768427
+    },
+    {
+      "group": "resize-png",
+      "fixture": "12mp",
+      "detail": "PNG has no DCT scale: this is the resampler gain alone",
+      "baseline_label": "image::imageops (scalar)",
+      "candidate_label": "fast_image_resize (SIMD)",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 583.760949,
+        "median_ms": 589.701787,
+        "mean_ms": 592.5304061428571,
+        "max_ms": 616.197362
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 31.562695,
+        "median_ms": 31.7343,
+        "mean_ms": 31.737983857142858,
+        "max_ms": 31.988452000000002
+      },
+      "speedup": 18.582473443561067,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "decode",
+      "fixture": "24mp",
+      "detail": "full-resolution decode, same pixels out",
+      "baseline_label": "image crate (today)",
+      "candidate_label": "zune-jpeg",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 162.248208,
+        "median_ms": 162.921165,
+        "mean_ms": 163.72301942857143,
+        "max_ms": 167.07641800000002
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 158.880896,
+        "median_ms": 160.950912,
+        "mean_ms": 160.680578,
+        "max_ms": 163.24199000000002
+      },
+      "speedup": 1.0122413285859482,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "decode-scaled",
+      "fixture": "24mp",
+      "detail": "decode at 1/2 scale: 3000x2000 instead of 6000x4000",
+      "baseline_label": "image crate, full decode (today)",
+      "candidate_label": "jpeg-decoder, DCT-scaled",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 162.248208,
+        "median_ms": 162.921165,
+        "mean_ms": 163.72301942857143,
+        "max_ms": 167.07641800000002
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 179.691849,
+        "median_ms": 183.126945,
+        "mean_ms": 182.60021814285713,
+        "max_ms": 184.25025
+      },
+      "speedup": 0.889662441537481,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "dct-curve",
+      "fixture": "24mp",
+      "detail": "1/2 scale: 3000x2000",
+      "baseline_label": "jpeg-decoder, full scale",
+      "candidate_label": "jpeg-decoder, DCT-scaled",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 259.177589,
+        "median_ms": 273.070081,
+        "mean_ms": 272.56179271428573,
+        "max_ms": 285.934188
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 163.282429,
+        "median_ms": 167.08787,
+        "mean_ms": 166.79462985714287,
+        "max_ms": 169.169433
+      },
+      "speedup": 1.634290274931388,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "dct-curve",
+      "fixture": "24mp",
+      "detail": "1/4 scale: 1500x1000",
+      "baseline_label": "jpeg-decoder, full scale",
+      "candidate_label": "jpeg-decoder, DCT-scaled",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 259.177589,
+        "median_ms": 273.070081,
+        "mean_ms": 272.56179271428573,
+        "max_ms": 285.934188
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 109.925809,
+        "median_ms": 111.388302,
+        "mean_ms": 112.37207028571429,
+        "max_ms": 117.30885
+      },
+      "speedup": 2.4515148906749653,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "dct-curve",
+      "fixture": "24mp",
+      "detail": "1/8 scale: 750x500",
+      "baseline_label": "jpeg-decoder, full scale",
+      "candidate_label": "jpeg-decoder, DCT-scaled",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 259.177589,
+        "median_ms": 273.070081,
+        "mean_ms": 272.56179271428573,
+        "max_ms": 285.934188
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 95.053585,
+        "median_ms": 96.077014,
+        "mean_ms": 96.10060057142857,
+        "max_ms": 97.11412299999999
+      },
+      "speedup": 2.8421999147475585,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "resize",
+      "fixture": "24mp",
+      "detail": "fit-to-window, Lanczos3, from a decoded frame",
+      "baseline_label": "image::imageops (scalar)",
+      "candidate_label": "fast_image_resize (SIMD)",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 930.849652,
+        "median_ms": 959.547748,
+        "mean_ms": 948.8546822857143,
+        "max_ms": 963.110568
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 46.772124999999996,
+        "median_ms": 47.029401,
+        "mean_ms": 47.10594485714286,
+        "max_ms": 47.961871
+      },
+      "speedup": 20.403146278643863,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "zoom",
+      "fixture": "24mp",
+      "detail": "one zoom step to 1x",
+      "baseline_label": "re-raster the whole image",
+      "candidate_label": "resample the visible rectangle",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 55.75409,
+        "median_ms": 56.229762,
+        "mean_ms": 56.36548457142857,
+        "max_ms": 57.331684
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 2.1463189999999996,
+        "median_ms": 2.397027,
+        "mean_ms": 2.390584714285714,
+        "max_ms": 2.5991310000000003
+      },
+      "speedup": 23.458126253897014,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "zoom",
+      "fixture": "24mp",
+      "detail": "one zoom step to 2x",
+      "baseline_label": "re-raster the whole image",
+      "candidate_label": "resample the visible rectangle",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 608.580998,
+        "median_ms": 613.742698,
+        "mean_ms": 615.8016834285716,
+        "max_ms": 633.102383
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 16.456678,
+        "median_ms": 16.916271000000002,
+        "mean_ms": 16.966202714285718,
+        "max_ms": 17.582941
+      },
+      "speedup": 36.28120511902416,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "zoom",
+      "fixture": "24mp",
+      "detail": "one zoom step to 4x",
+      "baseline_label": "re-raster the whole image",
+      "candidate_label": "resample the visible rectangle",
+      "baseline": {
+        "samples": 3,
+        "min_ms": 2200.886497,
+        "median_ms": 2464.4536329999996,
+        "mean_ms": 2588.1619376666663,
+        "max_ms": 3099.145683
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 14.910773,
+        "median_ms": 15.296475000000001,
+        "mean_ms": 15.364703714285714,
+        "max_ms": 15.880111
+      },
+      "speedup": 161.11251991063298,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "first-pixel",
+      "fixture": "24mp",
+      "detail": "file on disk to window-ready pixels",
+      "baseline_label": "read whole file, decode all, scale all",
+      "candidate_label": "scale-aware decode, SIMD fit",
+      "baseline": {
+        "samples": 6,
+        "min_ms": 1068.6589580000002,
+        "median_ms": 1110.8480915,
+        "mean_ms": 1118.2709881666667,
+        "max_ms": 1179.461171
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 202.977758,
+        "median_ms": 203.628626,
+        "mean_ms": 205.74923942857146,
+        "max_ms": 214.621125
+      },
+      "speedup": 5.455264877640534,
+      "baseline_peak_bytes": 222538795,
+      "candidate_peak_bytes": 43674326
+    },
+    {
+      "group": "resize-png",
+      "fixture": "24mp",
+      "detail": "PNG has no DCT scale: this is the resampler gain alone",
+      "baseline_label": "image::imageops (scalar)",
+      "candidate_label": "fast_image_resize (SIMD)",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 910.473538,
+        "median_ms": 937.955781,
+        "mean_ms": 944.7430875714286,
+        "max_ms": 979.612135
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 46.74654,
+        "median_ms": 47.179298,
+        "mean_ms": 47.61433985714285,
+        "max_ms": 49.580093
+      },
+      "speedup": 19.880664205728536,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "decode",
+      "fixture": "61mp",
+      "detail": "full-resolution decode, same pixels out",
+      "baseline_label": "image crate (today)",
+      "candidate_label": "zune-jpeg",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 381.653087,
+        "median_ms": 387.78506600000003,
+        "mean_ms": 388.70889842857144,
+        "max_ms": 399.253443
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 372.801696,
+        "median_ms": 376.365541,
+        "mean_ms": 377.97490557142856,
+        "max_ms": 385.67667700000004
+      },
+      "speedup": 1.0303415795443398,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "decode-scaled",
+      "fixture": "61mp",
+      "detail": "decode at 1/4 scale: 2376x1584 instead of 9504x6336",
+      "baseline_label": "image crate, full decode (today)",
+      "candidate_label": "jpeg-decoder, DCT-scaled",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 381.653087,
+        "median_ms": 387.78506600000003,
+        "mean_ms": 388.70889842857144,
+        "max_ms": 399.253443
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 266.841427,
+        "median_ms": 275.17802800000004,
+        "mean_ms": 274.8197092857143,
+        "max_ms": 279.99035100000003
+      },
+      "speedup": 1.4092152226630534,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "dct-curve",
+      "fixture": "61mp",
+      "detail": "1/2 scale: 4752x3168",
+      "baseline_label": "jpeg-decoder, full scale",
+      "candidate_label": "jpeg-decoder, DCT-scaled",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 623.732203,
+        "median_ms": 641.210551,
+        "mean_ms": 639.1516069999999,
+        "max_ms": 654.302196
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 407.945864,
+        "median_ms": 424.331729,
+        "mean_ms": 423.02686271428564,
+        "max_ms": 436.501354
+      },
+      "speedup": 1.5111067760855565,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "dct-curve",
+      "fixture": "61mp",
+      "detail": "1/4 scale: 2376x1584",
+      "baseline_label": "jpeg-decoder, full scale",
+      "candidate_label": "jpeg-decoder, DCT-scaled",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 623.732203,
+        "median_ms": 641.210551,
+        "mean_ms": 639.1516069999999,
+        "max_ms": 654.302196
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 267.907871,
+        "median_ms": 272.813214,
+        "mean_ms": 277.17195714285714,
+        "max_ms": 306.512664
+      },
+      "speedup": 2.350364711439527,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "dct-curve",
+      "fixture": "61mp",
+      "detail": "1/8 scale: 1188x792",
+      "baseline_label": "jpeg-decoder, full scale",
+      "candidate_label": "jpeg-decoder, DCT-scaled",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 623.732203,
+        "median_ms": 641.210551,
+        "mean_ms": 639.1516069999999,
+        "max_ms": 654.302196
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 236.48903800000002,
+        "median_ms": 245.402229,
+        "mean_ms": 251.77417957142856,
+        "max_ms": 298.79519500000004
+      },
+      "speedup": 2.6128961974505946,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "resize",
+      "fixture": "61mp",
+      "detail": "fit-to-window, Lanczos3, from a decoded frame",
+      "baseline_label": "image::imageops (scalar)",
+      "candidate_label": "fast_image_resize (SIMD)",
+      "baseline": {
+        "samples": 4,
+        "min_ms": 1902.87746,
+        "median_ms": 1906.6847045,
+        "mean_ms": 1912.7102920000002,
+        "max_ms": 1934.594299
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 108.886436,
+        "median_ms": 111.278081,
+        "mean_ms": 111.26977528571429,
+        "max_ms": 113.131441
+      },
+      "speedup": 17.134413959744688,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "zoom",
+      "fixture": "61mp",
+      "detail": "one zoom step to 1x",
+      "baseline_label": "re-raster the whole image",
+      "candidate_label": "resample the visible rectangle",
+      "baseline": {
+        "samples": 7,
+        "min_ms": 128.695526,
+        "median_ms": 129.690022,
+        "mean_ms": 132.903753,
+        "max_ms": 145.284641
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 2.254393,
+        "median_ms": 2.457801,
+        "mean_ms": 2.5968307142857143,
+        "max_ms": 3.11471
+      },
+      "speedup": 52.76668941057474,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "zoom",
+      "fixture": "61mp",
+      "detail": "one zoom step to 2x",
+      "baseline_label": "re-raster the whole image",
+      "candidate_label": "resample the visible rectangle",
+      "baseline": {
+        "samples": 2,
+        "min_ms": 1529.503305,
+        "median_ms": 3010.7766755000002,
+        "mean_ms": 3010.7766755000002,
+        "max_ms": 4492.050046
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 17.042547000000003,
+        "median_ms": 17.414652,
+        "mean_ms": 17.39058885714286,
+        "max_ms": 17.582007
+      },
+      "speedup": 172.8875590221384,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "zoom",
+      "fixture": "61mp",
+      "detail": "one zoom step to 4x",
+      "baseline_label": "re-raster the whole image",
+      "candidate_label": "resample the visible rectangle",
+      "baseline": {
+        "samples": 1,
+        "min_ms": 11007.073496,
+        "median_ms": 11007.073496,
+        "mean_ms": 11007.073496,
+        "max_ms": 11007.073496
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 14.992277,
+        "median_ms": 15.348333,
+        "mean_ms": 15.449370428571427,
+        "max_ms": 15.813859999999998
+      },
+      "speedup": 717.1510740612678,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "first-pixel",
+      "fixture": "61mp",
+      "detail": "file on disk to window-ready pixels",
+      "baseline_label": "read whole file, decode all, scale all",
+      "candidate_label": "scale-aware decode, SIMD fit",
+      "baseline": {
+        "samples": 3,
+        "min_ms": 2528.971148,
+        "median_ms": 2558.537421,
+        "mean_ms": 2556.2371129999997,
+        "max_ms": 2581.20277
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 295.71407500000004,
+        "median_ms": 302.154843,
+        "mean_ms": 308.50365300000004,
+        "max_ms": 332.644419
+      },
+      "speedup": 8.46763664483114,
+      "baseline_peak_bytes": 416328517,
+      "candidate_peak_bytes": 38612336
+    },
+    {
+      "group": "video-transport",
+      "fixture": "256mb-clip",
+      "detail": "16 sequential 4 MB range requests",
+      "baseline_label": "loopback HTTP, as shipped",
+      "candidate_label": "in-process read",
+      "baseline": {
+        "samples": 6,
+        "min_ms": 1036.367276,
+        "median_ms": 1163.96724,
+        "mean_ms": 1150.6810581666666,
+        "max_ms": 1255.208865
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 14.300317,
+        "median_ms": 14.663117,
+        "mean_ms": 14.73290257142857,
+        "max_ms": 15.361961
+      },
+      "speedup": 79.38061464012051,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    },
+    {
+      "group": "video-transport-nodelay",
+      "fixture": "256mb-clip",
+      "detail": "16 sequential 4 MB range requests; server-side TCP_NODELAY only",
+      "baseline_label": "loopback HTTP, as shipped",
+      "candidate_label": "loopback HTTP, Nagle disabled",
+      "baseline": {
+        "samples": 6,
+        "min_ms": 1036.367276,
+        "median_ms": 1163.96724,
+        "mean_ms": 1150.6810581666666,
+        "max_ms": 1255.208865
+      },
+      "candidate": {
+        "samples": 7,
+        "min_ms": 772.494838,
+        "median_ms": 782.1402469999999,
+        "mean_ms": 789.5951974285714,
+        "max_ms": 806.1484439999999
+      },
+      "speedup": 1.488182259466313,
+      "baseline_peak_bytes": null,
+      "candidate_peak_bytes": null
+    }
+  ]
+}
