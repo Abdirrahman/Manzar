@@ -307,6 +307,66 @@ mod tests {
     }
 
     #[test]
+    fn a_viewport_query_serves_a_fitted_surface_and_no_query_serves_the_file() {
+        let directory = tempdir().expect("temp dir");
+        let image = directory.path().join("large.png");
+        image::RgbImage::from_fn(4000, 3000, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
+        })
+        .save(&image)
+        .expect("test image");
+
+        let registry = SharedImageRegistry::default();
+        let id = {
+            let mut registry = registry.lock().expect("image registry");
+            registry
+                .approve_path(&image)
+                .expect("approved image")
+                .id()
+                .as_str()
+                .to_string()
+        };
+
+        let fitted = media_protocol_response(
+            &registry,
+            &format!("/{id}"),
+            None,
+            viewport_from_query(Some("w=2560&h=1440")),
+        );
+
+        assert_eq!(fitted.status(), StatusCode::OK);
+        assert_eq!(
+            fitted.headers().get(header::CONTENT_TYPE).unwrap(),
+            "image/bmp"
+        );
+        let decoded = image::load_from_memory(fitted.body()).expect("fitted body decodes");
+        assert_eq!(
+            (decoded.width(), decoded.height()),
+            (1920, 1440),
+            "the surface should be fitted to the window, not the file"
+        );
+
+        // The same id without the hint is the path that shipped before: the
+        // original file, untouched.
+        let whole = media_protocol_response(&registry, &format!("/{id}"), None, None);
+
+        assert_eq!(
+            whole.headers().get(header::CONTENT_TYPE).unwrap(),
+            "image/png"
+        );
+        assert_eq!(whole.body(), &std::fs::read(&image).expect("source bytes"));
+    }
+
+    #[test]
+    fn a_malformed_viewport_query_falls_back_to_serving_the_file() {
+        assert_eq!(viewport_from_query(None), None);
+        assert_eq!(viewport_from_query(Some("")), None);
+        assert_eq!(viewport_from_query(Some("w=2560")), None);
+        assert_eq!(viewport_from_query(Some("w=wide&h=1440")), None);
+        assert_eq!(viewport_from_query(Some("w=2560&h=1440")), Some((2560, 1440)));
+    }
+
+    #[test]
     fn video_range_request_returns_partial_content_with_a_content_range_header() {
         let directory = tempdir().expect("temp dir");
         let video = directory.path().join("clip.mp4");
