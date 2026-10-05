@@ -107,10 +107,14 @@ pub fn crop_image(path: &Path, rect: CropRect) -> Result<(), CropError> {
         return Err(CropError::ImageTooLarge);
     }
     let profile = decoder.icc_profile()?;
-    let mut image = DynamicImage::from_decoder(decoder)?;
-    image.apply_orientation(orientation);
-    let cropped = image.crop_imm(rect.x, rect.y, rect.width, rect.height);
+    let image = DynamicImage::from_decoder(decoder)?;
+    // Bounds have been checked in display space. Invert EXIF's transform to
+    // select the same source pixels, then transform only the retained region.
+    // This avoids allocating/rotating a full frame that is mostly discarded.
+    let source = source_crop(rect, image.width(), image.height(), orientation);
+    let mut cropped = image.crop_imm(source.x, source.y, source.width, source.height);
     drop(image);
+    cropped.apply_orientation(orientation);
 
     // Encode beside the source, flush, then atomically replace it. An encoder,
     // permissions or disk-space failure leaves the original untouched; tempfile
@@ -154,6 +158,32 @@ pub fn crop_image(path: &Path, rect: CropRect) -> Result<(), CropError> {
         .persist(path)
         .map_err(|error| CropError::FileSystem(error.error))?;
     Ok(())
+}
+
+/// Inverse EXIF mapping for a rectangle already validated in display axes.
+fn source_crop(rect: CropRect, width: u32, height: u32, orientation: Orientation) -> CropRect {
+    let CropRect {
+        x,
+        y,
+        width: w,
+        height: h,
+    } = rect;
+    let (x, y, width, height) = match orientation {
+        Orientation::NoTransforms => (x, y, w, h),
+        Orientation::FlipHorizontal => (width - x - w, y, w, h),
+        Orientation::Rotate180 => (width - x - w, height - y - h, w, h),
+        Orientation::FlipVertical => (x, height - y - h, w, h),
+        Orientation::Rotate90FlipH => (y, x, h, w),
+        Orientation::Rotate90 => (y, height - x - w, h, w),
+        Orientation::Rotate270FlipH => (width - y - h, height - x - w, h, w),
+        Orientation::Rotate270 => (width - y - h, x, h, w),
+    };
+    CropRect {
+        x,
+        y,
+        width,
+        height,
+    }
 }
 
 fn encode_crop(

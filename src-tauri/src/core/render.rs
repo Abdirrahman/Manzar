@@ -11,7 +11,7 @@
 //! module existed — so animated GIF, colour-managed images and files already
 //! smaller than the window behave as they always did.
 
-use super::crop::still_decoder;
+use super::{crop::still_decoder, metadata_preflight::MAX_SAFE_DECODED_RGBA_BYTES};
 use std::{io::Cursor, path::Path};
 
 use fast_image_resize::{
@@ -19,8 +19,8 @@ use fast_image_resize::{
     FilterType, PixelType, ResizeAlg, ResizeOptions, Resizer,
 };
 use image::{
-    codecs::bmp::BmpEncoder, metadata::Orientation, DynamicImage, ExtendedColorType, ImageDecoder,
-    RgbImage,
+    codecs::bmp::BmpEncoder, metadata::Orientation, DynamicImage, ExtendedColorType, GrayImage,
+    ImageDecoder, ImageFormat, RgbImage,
 };
 
 /// Below 1/2 there is no DCT scale to take, and taking one anyway is a loss:
@@ -86,7 +86,8 @@ pub fn fit_image(path: &Path, viewport: (u32, u32)) -> Option<FittedImage> {
         return None;
     }
 
-    let probe = probe(path)?;
+    let (format, mut decoder) = still_decoder(path).ok()?;
+    let probe = probe(decoder.as_mut())?;
 
     // A profile Manzar cannot honour must reach the engine, which can.
     if probe
@@ -112,18 +113,25 @@ pub fn fit_image(path: &Path, viewport: (u32, u32)) -> Option<FittedImage> {
         fitted
     };
 
-    let bytes = std::fs::read(path).ok()?;
-    let frame = decode_to_cover(&bytes, probe.width, probe.height, required)?;
-    let frame = apply_orientation(frame, probe.orientation);
-    let frame = resize_rgb(&frame, fitted)?;
-
-    encode_bmp(&frame)
+    let mut decoded = decode_to_cover(path, format, decoder, probe.width, probe.height, required)?;
+    decoded.apply_orientation(probe.orientation);
+    let resized = match decoded {
+        // All RGB channels of a grayscale image are identical. Convolve once
+        // before expanding, instead of allocating and convolving three source
+        // channels. Keep orientation before convolution for identical rounding.
+        DynamicImage::ImageLuma8(gray) => {
+            let pixels = resize_pixels(gray.as_raw(), gray.dimensions(), fitted, PixelType::U8)?;
+            DynamicImage::ImageLuma8(GrayImage::from_raw(fitted.0, fitted.1, pixels)?).into_rgb8()
+        }
+        image => resize_rgb(&image.into_rgb8(), fitted)?,
+    };
+    // The decoded frame and resizer scratch are released before BMP encoding.
+    encode_bmp(&resized)
 }
 
-/// Reads the header only — dimensions, orientation and colour profile — which
-/// is what makes choosing a decode strategy possible before decoding.
-fn probe(path: &Path) -> Option<Probe> {
-    let (_, mut decoder) = still_decoder(path).ok()?;
+/// Inspect the decoder that will also perform the full decode. JPEG decoder
+/// construction reads the compressed file; reusing it avoids another read/copy.
+fn probe(decoder: &mut dyn ImageDecoder) -> Option<Probe> {
     // The RGB fitting path cannot retain alpha. Let the webview handle it,
     // just as it handles animation and non-sRGB colour profiles.
     if decoder.color_type().has_alpha() {
@@ -150,21 +158,34 @@ fn is_srgb(profile: &[u8]) -> bool {
 
 /// Decodes at the smallest scale that still covers `required`.
 fn decode_to_cover(
-    bytes: &[u8],
+    path: &Path,
+    format: ImageFormat,
+    decoder: Box<dyn ImageDecoder>,
     width: u32,
     height: u32,
     required: (u32, u32),
-) -> Option<RgbImage> {
+) -> Option<DynamicImage> {
     let (scaled_width, _) = dct_scale_for(width, height, required);
     let divisor = width.div_ceil(scaled_width.max(1)).max(1);
 
-    if is_jpeg(bytes) && divisor >= DCT_DIVISOR_WORTH_SCALING {
-        if let Some(frame) = decode_jpeg_at_divisor(bytes, divisor) {
-            return Some(frame);
+    // Only RGB8 can use the scaled decoder. Grayscale stays single-channel in
+    // the general decoder; CMYK keeps the general decoder's colour conversion.
+    if format == ImageFormat::Jpeg
+        && decoder.color_type() == image::ColorType::Rgb8
+        && divisor >= DCT_DIVISOR_WORTH_SCALING
+    {
+        let bytes = std::fs::read(path).ok()?;
+        if let Some(frame) = decode_jpeg_at_divisor(&bytes, divisor) {
+            return Some(DynamicImage::ImageRgb8(frame));
         }
     }
 
-    Some(image::load_from_memory(bytes).ok()?.into_rgb8())
+    // from_decoder does not apply ImageReader's allocation reservation. Keep
+    // that budget explicit when consuming the already-prepared decoder.
+    if decoder.total_bytes() > MAX_SAFE_DECODED_RGBA_BYTES {
+        return None;
+    }
+    DynamicImage::from_decoder(decoder).ok()
 }
 
 /// A JPEG stores frequency coefficients, so a decoder can rebuild at 1/2, 1/4
@@ -172,8 +193,15 @@ fn decode_to_cover(
 /// transform. The full-size pixels are never allocated at all.
 fn decode_jpeg_at_divisor(bytes: &[u8], divisor: u32) -> Option<RgbImage> {
     let mut decoder = jpeg_decoder::Decoder::new(Cursor::new(bytes));
+    decoder.set_max_decoding_buffer_size(MAX_SAFE_DECODED_RGBA_BYTES as usize);
     decoder.read_info().ok()?;
     let info = decoder.info()?;
+
+    // The format is known from the header. Reject before decoding so grayscale
+    // and CMYK do not pay for pixels that the general decoder must redo.
+    if info.pixel_format != jpeg_decoder::PixelFormat::RGB24 {
+        return None;
+    }
 
     let (width, height) = decoder
         .scale(
@@ -183,40 +211,24 @@ fn decode_jpeg_at_divisor(bytes: &[u8], divisor: u32) -> Option<RgbImage> {
         .ok()?;
     let pixels = decoder.decode().ok()?;
 
-    // Greyscale and CMYK decode to something other than RGB24. Reinterpreting
-    // that buffer as RGB would garble it, so hand those back to the general
-    // decoder instead.
-    if decoder.info()?.pixel_format != jpeg_decoder::PixelFormat::RGB24 {
-        return None;
-    }
-
     RgbImage::from_raw(u32::from(width), u32::from(height), pixels)
-}
-
-/// The engine applies EXIF orientation for free on the whole-file path. Once
-/// Rust owns the decode it has to do the same, or sideways photos ship
-/// sideways.
-fn apply_orientation(frame: RgbImage, orientation: Orientation) -> RgbImage {
-    if orientation == Orientation::NoTransforms {
-        return frame;
-    }
-
-    let mut image = DynamicImage::ImageRgb8(frame);
-    image.apply_orientation(orientation);
-    image.into_rgb8()
 }
 
 /// SIMD convolution — AVX2 or NEON, dispatched at runtime. This is where the
 /// bulk of the measured win comes from, not the scaled decode.
 fn resize_rgb(frame: &RgbImage, target: (u32, u32)) -> Option<RgbImage> {
-    let source = ImageRef::new(
-        frame.width(),
-        frame.height(),
-        frame.as_raw(),
-        PixelType::U8x3,
-    )
-    .ok()?;
-    let mut destination = FirImage::new(target.0, target.1, PixelType::U8x3);
+    let pixels = resize_pixels(frame.as_raw(), frame.dimensions(), target, PixelType::U8x3)?;
+    RgbImage::from_raw(target.0, target.1, pixels)
+}
+
+fn resize_pixels(
+    pixels: &[u8],
+    dimensions: (u32, u32),
+    target: (u32, u32),
+    pixel_type: PixelType,
+) -> Option<Vec<u8>> {
+    let source = ImageRef::new(dimensions.0, dimensions.1, pixels, pixel_type).ok()?;
+    let mut destination = FirImage::new(target.0, target.1, pixel_type);
 
     Resizer::new()
         .resize(
@@ -226,7 +238,7 @@ fn resize_rgb(frame: &RgbImage, target: (u32, u32)) -> Option<RgbImage> {
         )
         .ok()?;
 
-    RgbImage::from_raw(target.0, target.1, destination.into_vec())
+    Some(destination.into_vec())
 }
 
 fn encode_bmp(frame: &RgbImage) -> Option<FittedImage> {
@@ -245,10 +257,6 @@ fn encode_bmp(frame: &RgbImage) -> Option<FittedImage> {
         bytes,
         mime_type: FITTED_MIME_TYPE,
     })
-}
-
-fn is_jpeg(bytes: &[u8]) -> bool {
-    bytes.starts_with(&[0xFF, 0xD8, 0xFF])
 }
 
 /// Largest box within `target` that keeps the source aspect ratio — the

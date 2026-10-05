@@ -1,0 +1,67 @@
+{
+  "dimensions_only_read_bytes": 39,
+  "image_probe_read_bytes": 1839256,
+  "jpeg_bytes": 1839256,
+  "max_orientation_pixel_difference": 8,
+  "method": "one warmup then 15 samples, medians, isolated CPU stages; no disk or webview timings",
+  "retained_resizer_scratch_bytes": 17280003,
+  "rows": [
+    {
+      "baseline_ms": 1.54229,
+      "candidate_ms": 1.540236,
+      "name": "bmp_preallocation",
+      "ratio": 1.0013335618697394
+    },
+    {
+      "baseline_ms": 1.5413270000000001,
+      "candidate_ms": 0.97122,
+      "name": "bmp_direct_write",
+      "ratio": 1.5870008854842366
+    },
+    {
+      "baseline_ms": 8.748645,
+      "candidate_ms": 8.359646,
+      "name": "resize_reuse_scratch_and_destination",
+      "ratio": 1.046532951275688
+    },
+    {
+      "baseline_ms": 25.319029,
+      "candidate_ms": 11.062219,
+      "name": "orientation_after_resize",
+      "ratio": 2.2887839230085754
+    },
+    {
+      "baseline_ms": 37.944116,
+      "candidate_ms": 35.547944,
+      "name": "rgb_jpeg_scaled_vs_full_decode_and_resize",
+      "ratio": 1.0674067676037748
+    },
+    {
+      "baseline_ms": 7.1207400000000005,
+      "candidate_ms": 6.6828579999999995,
+      "name": "orientation_after_resize_on_scaled_jpeg_frame",
+      "ratio": 1.065523163891856
+    },
+    {
+      "baseline_ms": 16.229378,
+      "candidate_ms": 0.746057,
+      "name": "crop_before_orientation",
+      "ratio": 21.75353625795348
+    },
+    {
+      "baseline_ms": 69.576571,
+      "candidate_ms": 58.624193999999996,
+      "name": "grayscale_reject_before_decode",
+      "ratio": 1.1868234981618682
+    }
+  ],
+  "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "source": [
+    4000,
+    3000
+  ],
+  "target": [
+    1920,
+    1440
+  ]
+}
