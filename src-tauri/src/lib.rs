@@ -1,6 +1,9 @@
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use tauri::{
@@ -10,8 +13,7 @@ use tauri::{
 
 use crate::core::{
     image_protocol::{
-        image_id_from_protocol_path, serve_approved_media, ImageProtocolError,
-        IMAGE_PROTOCOL_SCHEME,
+        image_id_from_protocol_path, serve_media_path, ImageProtocolError, IMAGE_PROTOCOL_SCHEME,
     },
     image_registry::ApprovedImageRegistry,
     media_server,
@@ -39,6 +41,8 @@ pub fn run() {
     let image_registry = SharedImageRegistry::default();
     let viewer_session = SharedViewerSession::default();
     let protocol_registry = Arc::clone(&image_registry);
+    let decode_gate = Arc::new(tauri::async_runtime::Mutex::new(()));
+    let latest_request = Arc::new(AtomicU64::new(0));
     let setup_viewer_session = Arc::clone(&viewer_session);
     let setup_image_registry = Arc::clone(&image_registry);
 
@@ -73,18 +77,20 @@ pub fn run() {
 
             Ok(())
         })
-        .register_uri_scheme_protocol(IMAGE_PROTOCOL_SCHEME, move |_ctx, request| {
-            let range = request
-                .headers()
-                .get(header::RANGE)
-                .and_then(|value| value.to_str().ok());
-            media_protocol_response(
-                &protocol_registry,
-                request.uri().path(),
-                range,
-                viewport_from_query(request.uri().query()),
-            )
-        })
+        .register_asynchronous_uri_scheme_protocol(
+            IMAGE_PROTOCOL_SCHEME,
+            move |_ctx, request, responder| {
+                let registry = Arc::clone(&protocol_registry);
+                let gate = Arc::clone(&decode_gate);
+                let latest = Arc::clone(&latest_request);
+                let ticket = latest.fetch_add(1, Ordering::Relaxed) + 1;
+                tauri::async_runtime::spawn(async move {
+                    responder.respond(
+                        queued_media_response(registry, request, gate, latest, ticket).await,
+                    );
+                });
+            },
+        )
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::get_viewer_snapshot,
@@ -95,6 +101,7 @@ pub fn run() {
             commands::navigate_previous,
             commands::set_sequence_ordering,
             commands::rename_current_image,
+            commands::crop_current_image,
             commands::trash_current_image
         ])
         .run(tauri::generate_context!())
@@ -159,6 +166,40 @@ fn viewport_from_query(query: Option<&str>) -> Option<(u32, u32)> {
     Some((width?, height?))
 }
 
+// ponytail: one decode at a time bounds peak memory. Superseded image requests
+// skip the decoder, so holding Next never builds a backlog of expensive work.
+async fn queued_media_response(
+    registry: SharedImageRegistry,
+    request: tauri::http::Request<Vec<u8>>,
+    gate: Arc<tauri::async_runtime::Mutex<()>>,
+    latest: Arc<AtomicU64>,
+    ticket: u64,
+) -> Response<Vec<u8>> {
+    let _permit = gate.lock().await;
+    if !request.headers().contains_key(header::RANGE) && latest.load(Ordering::Relaxed) != ticket {
+        return plain_text_response(StatusCode::REQUEST_TIMEOUT, "image request superseded");
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let range = request
+            .headers()
+            .get(header::RANGE)
+            .and_then(|value| value.to_str().ok());
+        media_protocol_response(
+            &registry,
+            request.uri().path(),
+            range,
+            viewport_from_query(request.uri().query()),
+        )
+    })
+    .await
+    .unwrap_or_else(|_| {
+        plain_text_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "image could not be decoded",
+        )
+    })
+}
+
 fn media_protocol_response(
     registry: &SharedImageRegistry,
     path: &str,
@@ -169,14 +210,21 @@ fn media_protocol_response(
         return plain_text_response(StatusCode::BAD_REQUEST, "invalid image id");
     };
 
-    let Ok(registry) = registry.lock() else {
-        return plain_text_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "image registry unavailable",
-        );
+    // Release the registry before reading/decoding: a slow image must not hold
+    // up navigation or other media requests.
+    let approved_path = match registry.lock() {
+        Ok(registry) => registry.path_for(&image_id).map(Path::to_path_buf),
+        Err(_) => {
+            return plain_text_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "image registry unavailable",
+            )
+        }
     };
-
-    match serve_approved_media(&registry, &image_id, range, viewport) {
+    let Some(approved_path) = approved_path else {
+        return plain_text_response(StatusCode::NOT_FOUND, "image not found");
+    };
+    match serve_media_path(&approved_path, range, viewport) {
         Ok(media) => {
             let status = if media.is_partial() {
                 StatusCode::PARTIAL_CONTENT
@@ -235,6 +283,41 @@ mod tests {
     use super::*;
     use crate::core::metadata_preflight::MAX_SAFE_FILE_SIZE_BYTES;
     use tempfile::tempdir;
+
+    #[test]
+    fn superseded_requests_skip_work_and_the_latest_image_is_served() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("current.png");
+        std::fs::write(&path, b"image bytes").unwrap();
+        let registry = SharedImageRegistry::default();
+        let id = registry
+            .lock()
+            .unwrap()
+            .approve_path(path)
+            .unwrap()
+            .id()
+            .as_str()
+            .to_owned();
+        let gate = Arc::new(tauri::async_runtime::Mutex::new(()));
+        let latest = Arc::new(AtomicU64::new(2));
+        for (ticket, expected) in [(1, StatusCode::REQUEST_TIMEOUT), (2, StatusCode::OK)] {
+            let request = tauri::http::Request::builder()
+                .uri(format!("/{id}"))
+                .body(Vec::new())
+                .unwrap();
+            let response = tauri::async_runtime::block_on(queued_media_response(
+                Arc::clone(&registry),
+                request,
+                Arc::clone(&gate),
+                Arc::clone(&latest),
+                ticket,
+            ));
+            assert_eq!(response.status(), expected);
+            if ticket == 2 {
+                assert_eq!(response.body(), b"image bytes");
+            }
+        }
+    }
 
     #[test]
     fn single_startup_image_argument_opens_as_single_image_session() {
@@ -363,7 +446,10 @@ mod tests {
         assert_eq!(viewport_from_query(Some("")), None);
         assert_eq!(viewport_from_query(Some("w=2560")), None);
         assert_eq!(viewport_from_query(Some("w=wide&h=1440")), None);
-        assert_eq!(viewport_from_query(Some("w=2560&h=1440")), Some((2560, 1440)));
+        assert_eq!(
+            viewport_from_query(Some("w=2560&h=1440")),
+            Some((2560, 1440))
+        );
     }
 
     #[test]
@@ -383,7 +469,8 @@ mod tests {
                 .to_string()
         };
 
-        let response = media_protocol_response(&registry, &format!("/{id}"), Some("bytes=2-5"), None);
+        let response =
+            media_protocol_response(&registry, &format!("/{id}"), Some("bytes=2-5"), None);
 
         assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
         assert_eq!(response.body(), b"2345");

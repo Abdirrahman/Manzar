@@ -1,168 +1,95 @@
 import {
   useCallback,
   useLayoutEffect,
-  useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
+import type { ImageDimensions } from "./viewerCommands";
 
-const zoomStep = 1.2;
-const minScale = 0.1;
-const maxScale = 8;
+const initial = { mode: "fit" as "fit" | "manual", scale: 1, x: 0, y: 0 };
 
-type PresentationMode = "fit" | "manual";
-
-type PanOffset = {
-  x: number;
-  y: number;
-};
-
-type PresentationState = {
-  mode: PresentationMode;
-  scale: number;
-  pan: PanOffset;
-  dragStart: DragStart | null;
-};
-
-type DragStart = {
-  pointerId: number;
-  clientX: number;
-  clientY: number;
-  pan: PanOffset;
-};
-
-const initialPresentationState: PresentationState = {
-  mode: "fit",
-  scale: 1,
-  pan: { x: 0, y: 0 },
-  dragStart: null,
-};
-
-export function useImagePresentation(imageId: string | null) {
-  const [state, setState] = useState<PresentationState>(
-    initialPresentationState,
-  );
-
-  useLayoutEffect(() => {
-    setState(initialPresentationState);
-  }, [imageId]);
-
-  const zoomIn = useCallback(() => {
-    setState((current) => ({
-      ...current,
-      mode: "manual",
-      scale: clampScale(current.scale * zoomStep),
-    }));
-  }, []);
-
-  const zoomOut = useCallback(() => {
-    setState((current) => ({
-      ...current,
-      mode: "manual",
-      scale: clampScale(current.scale / zoomStep),
-    }));
-  }, []);
-
-  const resetActualSize = useCallback(() => {
-    setState({
-      ...initialPresentationState,
-      mode: "manual",
-      scale: 1,
-    });
-  }, []);
-
+export function useImagePresentation(
+  imageId: string | null,
+  dimensions: ImageDimensions | null,
+) {
+  const [state, setState] = useState(initial);
+  const [isPanning, setPanning] = useState(false);
+  const mediaRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null);
+  const drag = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    panX: number;
+    panY: number;
+  } | null>(null);
   const fitToWindow = useCallback(() => {
-    setState(initialPresentationState);
+    setState(initial);
+    drag.current = null;
+    setPanning(false);
   }, []);
+  useLayoutEffect(fitToWindow, [imageId, fitToWindow]);
 
-  const startPan = useCallback(
-    (pointerId: number, clientX: number, clientY: number) => {
-      setState((current) => {
-        if (!canPan(current)) {
-          return current;
+  function zoom(factor: number) {
+    const media = mediaRef.current;
+    // Start zooming from the visible fit scale, not a hidden 100% scale.
+    const width =
+      dimensions?.width ??
+      (media instanceof HTMLVideoElement
+        ? media.videoWidth
+        : media?.naturalWidth);
+    const fitScale =
+      media && width ? media.getBoundingClientRect().width / width : 1;
+    setState((current) => ({
+      ...current,
+      mode: "manual",
+      scale: Math.min(
+        8,
+        Math.max(
+          0.01,
+          (current.mode === "fit" ? fitScale : current.scale) * factor,
+        ),
+      ),
+    }));
+  }
+  const imageStyle: CSSProperties | undefined =
+    state.mode === "manual"
+      ? {
+          width: dimensions?.width,
+          height: dimensions?.height,
+          transform: `translate(${state.x}px, ${state.y}px) scale(${state.scale})`,
         }
-
-        return {
-          ...current,
-          dragStart: {
-            pointerId,
-            clientX,
-            clientY,
-            pan: current.pan,
-          },
-        };
-      });
-    },
-    [],
-  );
-
-  const updatePan = useCallback(
-    (pointerId: number, clientX: number, clientY: number) => {
-      setState((current) => {
-        if (current.dragStart?.pointerId !== pointerId) {
-          return current;
-        }
-
-        return {
-          ...current,
-          pan: {
-            x: current.dragStart.pan.x + clientX - current.dragStart.clientX,
-            y: current.dragStart.pan.y + clientY - current.dragStart.clientY,
-          },
-        };
-      });
-    },
-    [],
-  );
-
-  const endPan = useCallback((pointerId: number) => {
-    setState((current) => {
-      if (current.dragStart?.pointerId !== pointerId) {
-        return current;
-      }
-
-      return {
-        ...current,
-        dragStart: null,
-      };
-    });
-  }, []);
-
-  const imageClassName =
-    state.mode === "fit"
-      ? "viewer-image viewer-image--fit"
-      : "viewer-image viewer-image--manual";
-  const imageStyle = useMemo<CSSProperties | undefined>(() => {
-    if (state.mode === "fit") {
-      return undefined;
-    }
-
-    return {
-      transform: `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.scale})`,
-    };
-  }, [state.mode, state.pan.x, state.pan.y, state.scale]);
+      : undefined;
 
   return {
     mode: state.mode,
     scale: state.scale,
-    isPannable: canPan(state),
-    isPanning: state.dragStart !== null,
-    imageClassName,
+    mediaRef,
     imageStyle,
-    zoomIn,
-    zoomOut,
-    resetActualSize,
+    isPanning,
+    zoomIn: () => zoom(1.2),
+    zoomOut: () => zoom(1 / 1.2),
     fitToWindow,
-    startPan,
-    updatePan,
-    endPan,
+    resetActualSize: () => {
+      fitToWindow();
+      setState({ ...initial, mode: "manual" });
+    },
+    startPan: (id: number, x: number, y: number) => {
+      drag.current = { id, x, y, panX: state.x, panY: state.y };
+      setPanning(true);
+    },
+    updatePan: (id: number, x: number, y: number) => {
+      const start = drag.current;
+      if (start?.id === id)
+        setState((current) => ({
+          ...current,
+          x: start.panX + x - start.x,
+          y: start.panY + y - start.y,
+        }));
+    },
+    endPan: () => {
+      drag.current = null;
+      setPanning(false);
+    },
   };
-}
-
-function canPan(state: PresentationState): boolean {
-  return state.mode === "manual";
-}
-
-function clampScale(scale: number): number {
-  return Math.min(maxScale, Math.max(minScale, scale));
 }

@@ -1,11 +1,15 @@
+use serde::Serialize;
 use std::path::Path;
 
-use super::supported_image::is_video;
+use super::{
+    crop::{oriented_dimensions, still_decoder},
+    supported_image::is_video,
+};
 
 pub const MAX_SAFE_FILE_SIZE_BYTES: u64 = 200 * 1024 * 1024;
 pub const MAX_SAFE_DECODED_RGBA_BYTES: u64 = 512 * 1024 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ImageDimensions {
     pub width: u32,
     pub height: u32,
@@ -15,10 +19,12 @@ pub struct ImageDimensions {
 pub struct ImagePreflight {
     file_size_bytes: u64,
     dimensions: Option<ImageDimensions>,
+    pub crop_supported: bool,
     reasons: Vec<OversizedImageReason>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "reason", rename_all = "snake_case")]
 pub enum OversizedImageReason {
     FileSize {
         actual_bytes: u64,
@@ -73,12 +79,19 @@ pub fn preflight_image(path: impl AsRef<Path>) -> Result<ImagePreflight, Metadat
         return Ok(ImagePreflight {
             file_size_bytes,
             dimensions: None,
+            crop_supported: false,
             reasons: Vec::new(),
         });
     }
 
-    let dimensions = image::image_dimensions(path)
-        .ok()
+    let still = still_decoder(path).ok();
+    let crop_supported = still.is_some();
+    let dimensions = still
+        .and_then(|(_, mut decoder)| {
+            let orientation = decoder.orientation().ok()?;
+            Some(oriented_dimensions(decoder.dimensions(), orientation))
+        })
+        .or_else(|| image::image_dimensions(path).ok())
         .map(|(width, height)| ImageDimensions { width, height });
     let mut reasons = Vec::new();
 
@@ -106,6 +119,7 @@ pub fn preflight_image(path: impl AsRef<Path>) -> Result<ImagePreflight, Metadat
     Ok(ImagePreflight {
         file_size_bytes,
         dimensions,
+        crop_supported,
         reasons,
     })
 }

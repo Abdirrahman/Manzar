@@ -1,3 +1,4 @@
+pub mod crop;
 pub mod file_actions;
 pub mod image_protocol;
 pub mod image_registry;

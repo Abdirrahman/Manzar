@@ -11,6 +11,7 @@
 //! module existed — so animated GIF, colour-managed images and files already
 //! smaller than the window behave as they always did.
 
+use super::crop::still_decoder;
 use std::{io::Cursor, path::Path};
 
 use fast_image_resize::{
@@ -19,7 +20,7 @@ use fast_image_resize::{
 };
 use image::{
     codecs::bmp::BmpEncoder, metadata::Orientation, DynamicImage, ExtendedColorType, ImageDecoder,
-    ImageReader, RgbImage,
+    RgbImage,
 };
 
 /// Below 1/2 there is no DCT scale to take, and taking one anyway is a loss:
@@ -85,8 +86,7 @@ pub fn fit_image(path: &Path, viewport: (u32, u32)) -> Option<FittedImage> {
         return None;
     }
 
-    let bytes = std::fs::read(path).ok()?;
-    let probe = probe(&bytes)?;
+    let probe = probe(path)?;
 
     // A profile Manzar cannot honour must reach the engine, which can.
     if probe
@@ -112,6 +112,7 @@ pub fn fit_image(path: &Path, viewport: (u32, u32)) -> Option<FittedImage> {
         fitted
     };
 
+    let bytes = std::fs::read(path).ok()?;
     let frame = decode_to_cover(&bytes, probe.width, probe.height, required)?;
     let frame = apply_orientation(frame, probe.orientation);
     let frame = resize_rgb(&frame, fitted)?;
@@ -121,20 +122,19 @@ pub fn fit_image(path: &Path, viewport: (u32, u32)) -> Option<FittedImage> {
 
 /// Reads the header only — dimensions, orientation and colour profile — which
 /// is what makes choosing a decode strategy possible before decoding.
-fn probe(bytes: &[u8]) -> Option<Probe> {
-    let mut decoder = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .ok()?
-        .into_decoder()
-        .ok()?;
-
+fn probe(path: &Path) -> Option<Probe> {
+    let (_, mut decoder) = still_decoder(path).ok()?;
+    // The RGB fitting path cannot retain alpha. Let the webview handle it,
+    // just as it handles animation and non-sRGB colour profiles.
+    if decoder.color_type().has_alpha() {
+        return None;
+    }
     let (width, height) = decoder.dimensions();
-
     Some(Probe {
         width,
         height,
-        orientation: decoder.orientation().unwrap_or(Orientation::NoTransforms),
-        icc_profile: decoder.icc_profile().ok().flatten(),
+        orientation: decoder.orientation().ok()?,
+        icc_profile: decoder.icc_profile().ok()?,
     })
 }
 
@@ -209,8 +209,13 @@ fn apply_orientation(frame: RgbImage, orientation: Orientation) -> RgbImage {
 /// SIMD convolution — AVX2 or NEON, dispatched at runtime. This is where the
 /// bulk of the measured win comes from, not the scaled decode.
 fn resize_rgb(frame: &RgbImage, target: (u32, u32)) -> Option<RgbImage> {
-    let source = ImageRef::new(frame.width(), frame.height(), frame.as_raw(), PixelType::U8x3)
-        .ok()?;
+    let source = ImageRef::new(
+        frame.width(),
+        frame.height(),
+        frame.as_raw(),
+        PixelType::U8x3,
+    )
+    .ok()?;
     let mut destination = FirImage::new(target.0, target.1, PixelType::U8x3);
 
     Resizer::new()
@@ -292,6 +297,16 @@ mod tests {
     }
 
     #[test]
+    fn transparent_images_keep_the_original_alpha_channel() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("transparent.png");
+        image::RgbaImage::from_pixel(100, 80, image::Rgba([50, 70, 90, 128]))
+            .save(&path)
+            .unwrap();
+        assert!(fit_image(&path, (20, 20)).is_none());
+    }
+
+    #[test]
     fn fit_within_keeps_aspect_ratio_and_never_upscales() {
         assert_eq!(fit_within(4000, 3000, WINDOW), (1920, 1440));
         assert_eq!(fit_within(3000, 4000, WINDOW), (1080, 1440));
@@ -345,7 +360,9 @@ mod tests {
     fn gif_is_never_fitted_so_animation_survives() {
         let directory = tempdir().expect("temp dir");
         let source = directory.path().join("animation.gif");
-        RgbImage::new(4000, 3000).save(&source).expect("gif fixture");
+        RgbImage::new(4000, 3000)
+            .save(&source)
+            .expect("gif fixture");
 
         assert!(
             fit_image(&source, WINDOW).is_none(),

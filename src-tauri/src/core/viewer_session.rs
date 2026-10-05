@@ -10,6 +10,7 @@ pub use super::viewed_image_descriptor::ViewerImage;
 const MAX_APPROVED_IMAGES: usize = 512;
 
 use super::{
+    crop::{crop_image, CropError, CropRect},
     file_actions::{self, FileActionError, TrashDeleter},
     image_registry::{ApprovedImageRegistry, ImageRegistryError},
     image_sequence::{ImageSequence, ImageSequenceError},
@@ -40,6 +41,7 @@ pub enum ViewerSessionError {
     MetadataPreflight(MetadataPreflightError),
     FileAction(FileActionError),
     NoCurrentImage,
+    Crop(CropError),
 }
 
 impl Default for ViewerSession {
@@ -148,6 +150,31 @@ impl ViewerSession {
             .map_err(ViewerSessionError::ImageSequence)?;
         sequence.reorder(self.sequence_ordering);
 
+        self.snapshot(registry)
+    }
+
+    pub fn crop_current_image(
+        &mut self,
+        image_id: &str,
+        rect: CropRect,
+        registry: &mut ApprovedImageRegistry,
+    ) -> Result<ViewerSnapshot, ViewerSessionError> {
+        let path = self.current_path_buf()?;
+        let current = registry
+            .approve_path(&path)
+            .map_err(ViewerSessionError::ImageRegistry)?;
+        if current.id().as_str() != image_id {
+            return Err(ViewerSessionError::Crop(CropError::SourceChanged));
+        }
+        crop_image(&path, rect).map_err(ViewerSessionError::Crop)?;
+        registry.revoke_path(&path);
+        self.image_descriptors.forget_path(&path);
+        if let Some(sequence) = &mut self.sequence {
+            sequence
+                .replace_current_path(&path)
+                .map_err(ViewerSessionError::ImageSequence)?;
+            sequence.reorder(self.sequence_ordering);
+        }
         self.snapshot(registry)
     }
 
@@ -271,6 +298,12 @@ impl ViewerSessionError {
                     "failed to update file"
                 }
             }
+            Self::Crop(CropError::Unsupported) => "Crop supports still PNG, JPEG, WebP and BMP images. Animated images are left unchanged.",
+            Self::Crop(CropError::InvalidBounds) => "Select a crop inside the image with a width and height of at least one pixel.",
+            Self::Crop(CropError::ImageTooLarge) => "This image is too large to crop safely.",
+            Self::Crop(CropError::SourceChanged) => "The source image changed. Reopen it before cropping.",
+            Self::Crop(CropError::Image(_)) => "Could not encode this crop. The original image is unchanged.",
+            Self::Crop(CropError::FileSystem(_)) => "Could not save the crop. Check available space and folder permissions. The original image is unchanged.",
             Self::NoCurrentImage => "nothing is currently open",
         }
     }
@@ -313,6 +346,49 @@ mod tests {
             std::fs::remove_file(path).map_err(|_| TrashDeleteError)?;
             Ok(())
         }
+    }
+
+    #[test]
+    fn crop_refreshes_the_current_file_and_rejects_stale_selections() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("source.png");
+        let sibling = directory.path().join("sibling.png");
+        image::RgbaImage::new(16, 12).save(&path).unwrap();
+        image::RgbaImage::new(5, 5).save(&sibling).unwrap();
+        let sibling_bytes = std::fs::read(&sibling).unwrap();
+        let mut session = ViewerSession::default();
+        let mut registry = ApprovedImageRegistry::default();
+        let before = session
+            .open_single_image(&path, &mut registry)
+            .unwrap()
+            .current
+            .unwrap();
+        let rect = CropRect {
+            x: 2,
+            y: 3,
+            width: 8,
+            height: 6,
+        };
+        let after = session
+            .crop_current_image(&before.id, rect, &mut registry)
+            .unwrap();
+        let current = after.current.unwrap();
+        assert_eq!(after.count, 2);
+        assert_eq!(current.filename, "source.png");
+        assert_ne!(current.id, before.id);
+        assert_ne!(current.url, before.url);
+        assert_eq!(image::image_dimensions(&path).unwrap(), (8, 6));
+        assert_eq!(current.preflight.dimensions.unwrap().width, 8);
+        assert!(registry
+            .path_for(&ImageId::from_opaque(before.id.clone()))
+            .is_none());
+        assert!(session
+            .crop_current_image(&before.id, rect, &mut registry)
+            .is_err());
+        session.next(&mut registry).unwrap();
+        let revisited = session.previous(&mut registry).unwrap().current.unwrap();
+        assert_eq!(revisited.id, current.id);
+        assert_eq!(std::fs::read(sibling).unwrap(), sibling_bytes);
     }
 
     #[test]

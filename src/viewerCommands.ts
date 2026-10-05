@@ -1,17 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 
-const rawViewerCommandNames = {
-  getViewerSnapshot: "get_viewer_snapshot",
-  openSingleImage: "open_single_image",
-  openImageSelection: "open_image_selection",
-  openFolder: "open_folder",
-  navigateNext: "navigate_next",
-  navigatePrevious: "navigate_previous",
-  setSequenceOrdering: "set_sequence_ordering",
-  renameCurrentImage: "rename_current_image",
-  trashCurrentImage: "trash_current_image",
-} as const;
-
 export type SequenceOrdering =
   | "newest_modified_first"
   | "natural_name"
@@ -29,6 +17,7 @@ export type MediaKind = "image" | "video";
 
 export type ViewerImage = {
   id: string;
+  filename: string;
   url: string;
   kind: MediaKind;
   preflight: ImagePreflight;
@@ -38,6 +27,7 @@ export type ImagePreflight = {
   file_size_bytes: number;
   dimensions: ImageDimensions | null;
   oversized: boolean;
+  crop_supported: boolean;
   reasons: OversizedImageReason[];
 };
 
@@ -60,72 +50,37 @@ export type OversizedImageReason =
       height: number;
     };
 
-export function getViewerSnapshot(): Promise<ViewerSnapshot> {
-  return invokeViewer(rawViewerCommandNames.getViewerSnapshot);
-}
+export type CropRect = { x: number; y: number; width: number; height: number };
 
-export function openSingleImage(path: string): Promise<ViewerSnapshot> {
-  return invokeViewer(rawViewerCommandNames.openSingleImage, { path });
-}
-
-export function openImageSelection(paths: string[]): Promise<ViewerSnapshot> {
-  return invokeViewer(rawViewerCommandNames.openImageSelection, { paths });
-}
-
-export function openFolder(path: string): Promise<ViewerSnapshot> {
-  return invokeViewer(rawViewerCommandNames.openFolder, { path });
-}
-
-export function navigateNext(): Promise<ViewerSnapshot> {
-  return invokeViewer(rawViewerCommandNames.navigateNext);
-}
-
-export function navigatePrevious(): Promise<ViewerSnapshot> {
-  return invokeViewer(rawViewerCommandNames.navigatePrevious);
-}
-
-export function setSequenceOrdering(
-  ordering: SequenceOrdering,
-): Promise<ViewerSnapshot> {
-  return invokeViewer(rawViewerCommandNames.setSequenceOrdering, { ordering });
-}
-
-export function renameCurrentImage(newStem: string): Promise<ViewerSnapshot> {
-  return invokeViewer(rawViewerCommandNames.renameCurrentImage, { newStem });
-}
-
-export function trashCurrentImage(): Promise<ViewerSnapshot> {
-  return invokeViewer(rawViewerCommandNames.trashCurrentImage);
-}
+export const getViewerSnapshot = () =>
+  invoke<ViewerSnapshot>("get_viewer_snapshot");
+export const openSingleImage = (path: string) =>
+  invoke<ViewerSnapshot>("open_single_image", { path });
+export const openImageSelection = (paths: string[]) =>
+  invoke<ViewerSnapshot>("open_image_selection", { paths });
+export const openFolder = (path: string) =>
+  invoke<ViewerSnapshot>("open_folder", { path });
+export const navigateNext = () => invoke<ViewerSnapshot>("navigate_next");
+export const navigatePrevious = () =>
+  invoke<ViewerSnapshot>("navigate_previous");
+export const setSequenceOrdering = (ordering: SequenceOrdering) =>
+  invoke<ViewerSnapshot>("set_sequence_ordering", { ordering });
+export const renameCurrentImage = (newStem: string) =>
+  invoke<ViewerSnapshot>("rename_current_image", { newStem });
+export const trashCurrentImage = () =>
+  invoke<ViewerSnapshot>("trash_current_image");
+export const cropCurrentImage = (imageId: string, rect: CropRect) =>
+  invoke<ViewerSnapshot>("crop_current_image", { imageId, rect });
 
 export function backendErrorMessage(error: unknown): string {
-  if (isCommandError(error)) {
-    return error.message;
-  }
-
-  if (typeof error === "string") {
-    return error;
-  }
-
-  return "viewer command failed";
-}
-
-type CommandError = {
-  message: string;
-};
-
-function invokeViewer(
-  commandName: (typeof rawViewerCommandNames)[keyof typeof rawViewerCommandNames],
-  args?: Record<string, unknown>,
-): Promise<ViewerSnapshot> {
-  return invoke<ViewerSnapshot>(commandName, args);
-}
-
-function isCommandError(error: unknown): error is CommandError {
-  return (
+  if (
     typeof error === "object" &&
     error !== null &&
     "message" in error &&
-    typeof (error as { message: unknown }).message === "string"
-  );
+    typeof error.message === "string"
+  )
+    return error.message;
+  return typeof error === "string"
+    ? error
+    : "The action could not finish. Please try again.";
 }

@@ -1,4 +1,7 @@
-use std::io::{Read, Seek, SeekFrom};
+use std::{
+    io::{Read, Seek, SeekFrom},
+    path::Path,
+};
 
 use super::{
     image_registry::{ApprovedImageRegistry, ImageId},
@@ -101,6 +104,14 @@ pub fn serve_approved_media(
     let path = registry
         .path_for(id)
         .ok_or(ImageProtocolError::UnknownImageId)?;
+    serve_media_path(path, range_header, viewport)
+}
+
+pub fn serve_media_path(
+    path: &Path,
+    range_header: Option<&str>,
+    viewport: Option<(u32, u32)>,
+) -> Result<ProtocolImageResponse, ImageProtocolError> {
     let kind = media_kind(path).ok_or(ImageProtocolError::UnsupportedImage)?;
     let mime_type = media_mime_type(path).ok_or(ImageProtocolError::UnsupportedImage)?;
     let total_bytes = std::fs::metadata(path)?.len();
@@ -386,8 +397,8 @@ mod tests {
         assert_eq!(open_ended.bytes(), b"789");
         assert_eq!(open_ended.content_range(), Some("bytes 7-9/10"));
 
-        let suffix =
-            serve_approved_media(&registry, approved.id(), Some("bytes=-3"), None).expect("suffix range");
+        let suffix = serve_approved_media(&registry, approved.id(), Some("bytes=-3"), None)
+            .expect("suffix range");
         assert_eq!(suffix.bytes(), b"789");
         assert_eq!(suffix.content_range(), Some("bytes 7-9/10"));
     }

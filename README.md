@@ -31,6 +31,7 @@ Use it when you want to quickly inspect a directory of images, move through a se
 - Sort by name, newest modified, largest first, or smallest first.
 - Fit to window, zoom, view actual size, pan, and fullscreen.
 - Warn before displaying very large images that may be slow.
+- Crop still PNG, JPEG, WebP, and BMP images with draggable corners, aspect ratios, pixel inputs, and keyboard adjustments. Save crop replaces the original file in place.
 - Rename the current image without leaving the viewer.
 - Move only the current image to trash.
 - Open image and video files from the desktop/file manager on Linux via `manzar %F`.
@@ -38,6 +39,12 @@ Use it when you want to quickly inspect a directory of images, move through a se
 > On Linux, video playback needs the GStreamer plugins (`gst-plugins-base`,
 > `gst-plugins-good`, `gst-plugins-bad-libs`, `gst-libav`). The Arch package depends
 > on them; other distributions may need them installed separately.
+
+## Cropping
+
+Open a still image, choose **Crop** (or press `C`), and drag the corners or enter exact pixel coordinates. Use an aspect ratio preset for a square, 4:3, 16:9, or original-ratio crop. Focus the selection or a corner and use arrow keys for precise adjustments; hold Shift for ten pixels at a time.
+
+**Save crop** replaces the original at the same path and refreshes the viewer. Cancel or Escape leaves it unchanged. Saving preserves the format, transparency and embedded colour profile, and applies the image's orientation before cropping. JPEG crops are re-encoded at quality 95; other camera metadata is not retained. A temporary file is encoded and synced before atomically replacing the source, so a failed encode or write leaves the source intact. GIF, animated PNG/WebP and videos remain viewable but cannot be cropped.
 
 ## Install
 
@@ -112,6 +119,10 @@ sudo pacman -Rns manzar
 | Actual size | `0` |
 | Fit to window | `F` |
 | Fullscreen | `F11` |
+| Crop current image | `C` |
+| Save crop | `Ctrl+Enter` / `⌘+Enter` |
+| Move crop / resize focused corner | Arrow keys (`Shift` for 10 pixels) |
+| Keyboard shortcuts | `?` |
 | Rename current image | `R` |
 | Move current image to trash | `Delete` |
 | Close dialog/fullscreen/error | `Esc` |
@@ -141,6 +152,7 @@ Build frontend and backend checks:
 
 ```sh
 bun run build
+bun test tests
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 

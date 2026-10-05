@@ -5,6 +5,7 @@ use tauri::State;
 
 use crate::{
     core::{
+        crop::CropRect,
         file_actions::DesktopTrashDeleter,
         sequence_ordering::SequenceOrdering,
         settings::{SettingsError, UserSettings},
@@ -116,6 +117,26 @@ pub fn trash_current_image(
     with_session_and_registry(&session, &registry, |session, registry| {
         session.trash_current_image(registry, &deleter)
     })
+}
+
+#[tauri::command]
+pub async fn crop_current_image(
+    image_id: String,
+    rect: CropRect,
+    session: State<'_, SharedViewerSession>,
+    registry: State<'_, SharedImageRegistry>,
+) -> Result<ViewerSnapshot, CommandError> {
+    let session = session.inner().clone();
+    let registry = registry.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        with_session_and_registry(&session, &registry, |session, registry| {
+            session.crop_current_image(&image_id, rect, registry)
+        })
+    })
+    .await
+    .map_err(|_| CommandError {
+        message: "Crop could not finish. Reopen the image and try again.",
+    })?
 }
 
 fn persist_sequence_ordering(

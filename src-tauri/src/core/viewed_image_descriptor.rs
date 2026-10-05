@@ -51,6 +51,7 @@ pub trait ImagePreflightReader {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ViewerImage {
     pub id: String,
+    pub filename: String,
     pub url: String,
     pub kind: MediaKind,
     pub preflight: ImagePreflightDto,
@@ -59,30 +60,10 @@ pub struct ViewerImage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ImagePreflightDto {
     pub file_size_bytes: u64,
-    pub dimensions: Option<ImageDimensionsDto>,
+    pub dimensions: Option<ImageDimensions>,
     pub oversized: bool,
-    pub reasons: Vec<OversizedImageReasonDto>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct ImageDimensionsDto {
-    pub width: u32,
-    pub height: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "reason", rename_all = "snake_case")]
-pub enum OversizedImageReasonDto {
-    FileSize {
-        actual_bytes: u64,
-        threshold_bytes: u64,
-    },
-    DecodedRgbaMemory {
-        estimated_bytes: u64,
-        threshold_bytes: u64,
-        width: u32,
-        height: u32,
-    },
+    pub crop_supported: bool,
+    pub reasons: Vec<OversizedImageReason>,
 }
 
 #[derive(Debug)]
@@ -132,6 +113,11 @@ impl<P: ImagePreflightReader> ViewedImageDescriptors<P> {
 
         Ok(ViewerImage {
             id,
+            filename: canonical_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
             url,
             kind,
             preflight: ImagePreflightDto::from_preflight(preflight),
@@ -199,48 +185,10 @@ impl ImagePreflightDto {
     fn from_preflight(preflight: ImagePreflight) -> Self {
         Self {
             file_size_bytes: preflight.file_size_bytes(),
-            dimensions: preflight.dimensions().map(ImageDimensionsDto::from),
+            dimensions: preflight.dimensions(),
             oversized: preflight.is_oversized(),
-            reasons: preflight
-                .reasons()
-                .iter()
-                .cloned()
-                .map(OversizedImageReasonDto::from)
-                .collect(),
-        }
-    }
-}
-
-impl From<ImageDimensions> for ImageDimensionsDto {
-    fn from(dimensions: ImageDimensions) -> Self {
-        Self {
-            width: dimensions.width,
-            height: dimensions.height,
-        }
-    }
-}
-
-impl From<OversizedImageReason> for OversizedImageReasonDto {
-    fn from(reason: OversizedImageReason) -> Self {
-        match reason {
-            OversizedImageReason::FileSize {
-                actual_bytes,
-                threshold_bytes,
-            } => Self::FileSize {
-                actual_bytes,
-                threshold_bytes,
-            },
-            OversizedImageReason::DecodedRgbaMemory {
-                estimated_bytes,
-                threshold_bytes,
-                width,
-                height,
-            } => Self::DecodedRgbaMemory {
-                estimated_bytes,
-                threshold_bytes,
-                width,
-                height,
-            },
+            crop_supported: preflight.crop_supported,
+            reasons: preflight.reasons().to_vec(),
         }
     }
 }

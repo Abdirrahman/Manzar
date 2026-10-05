@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import "./App.css";
+import { isTauri } from "@tauri-apps/api/core";
 import { pickImageFiles, pickImageFolder } from "./fileDialogs";
 import { useImagePresentation } from "./useImagePresentation";
+import { CropEditor } from "./CropEditor";
 import {
   backendErrorMessage,
+  cropCurrentImage,
   getViewerSnapshot,
   navigateNext,
   navigatePrevious,
@@ -14,1142 +23,897 @@ import {
   renameCurrentImage,
   setSequenceOrdering,
   trashCurrentImage,
-  type ImagePreflight,
-  type OversizedImageReason,
   type SequenceOrdering,
   type ViewerSnapshot,
 } from "./viewerCommands";
+import "./App.css";
 
-type NavigationDirection = "next" | "previous";
+const orderings: [SequenceOrdering, string][] = [
+  ["newest_modified_first", "Newest modified"],
+  ["natural_name", "Name"],
+  ["size_largest_first", "Largest first"],
+  ["size_smallest_first", "Smallest first"],
+];
+const shortcuts = [
+  ["Open images", "O"],
+  ["Open folder", "Shift O"],
+  ["Previous / next", "← →"],
+  ["Zoom", "− +"],
+  ["Fit to window", "F"],
+  ["Actual size", "0"],
+  ["Crop image", "C"],
+  ["Save crop", "Ctrl Enter"],
+  ["Rename", "R"],
+  ["Move to trash", "Delete"],
+  ["Fullscreen", "F11"],
+  ["Cancel / close", "Esc"],
+];
+type DialogName = "rename" | "trash" | "large" | "shortcuts" | null;
 
-// Rounded up to a multiple of this so dragging a window edge does not ask the
-// backend for a fresh decode on every frame. Rounding up never under-resolves.
-const viewportQuantum = 256;
-
-// The window in device pixels, which is all the backend needs to decide how
-// much of an image is worth decoding. The window is slightly larger than the
-// stage it contains, so this over-asks a little — which is the safe direction.
-function currentViewport() {
-  const ratio = window.devicePixelRatio || 1;
+function viewportSize() {
   const quantise = (value: number) =>
-    Math.ceil((value * ratio) / viewportQuantum) * viewportQuantum;
-
-  return { width: quantise(window.innerWidth), height: quantise(window.innerHeight) };
+    Math.ceil((value * (window.devicePixelRatio || 1)) / 256) * 256;
+  return {
+    width: quantise(window.innerWidth),
+    height: quantise(window.innerHeight),
+  };
 }
 
-type SequenceOrderingOption = {
-  value: SequenceOrdering;
-  label: string;
-};
-
-type ControlIconName =
-  | "actual-size"
-  | "chevron-left"
-  | "chevron-right"
-  | "fit"
-  | "folder"
-  | "fullscreen-enter"
-  | "fullscreen-exit"
-  | "image"
-  | "rename"
-  | "trash"
-  | "zoom-in"
-  | "zoom-out";
-
-const defaultSequenceOrdering: SequenceOrdering = "newest_modified_first";
-
-const sequenceOrderingOptions: SequenceOrderingOption[] = [
-  { value: "newest_modified_first", label: "Newest modified" },
-  { value: "natural_name", label: "Name" },
-  { value: "size_largest_first", label: "Largest first" },
-  { value: "size_smallest_first", label: "Smallest first" },
-];
-
-function App() {
+export default function App() {
   const [snapshot, setSnapshot] = useState<ViewerSnapshot | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [approvedOversizedImageId, setApprovedOversizedImageId] = useState<
-    string | null
-  >(null);
-  const [isOversizedDialogOpen, setIsOversizedDialogOpen] = useState(false);
-  const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<DialogName>(null);
   const [renameDraft, setRenameDraft] = useState("");
-  const [isTrashDialogOpen, setIsTrashDialogOpen] = useState(false);
-  const [viewport, setViewport] = useState(currentViewport);
-  const viewerShellRef = useRef<HTMLElement | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-
-  const current = snapshot?.current ?? null;
-  const isCurrentOversized = current?.preflight.oversized ?? false;
-  const shouldGateOversizedImage = Boolean(
-    current && isCurrentOversized && approvedOversizedImageId !== current.id,
+  const [cropping, setCropping] = useState(false);
+  const [approved, setApproved] = useState<string | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [viewport, setViewport] = useState(viewportSize);
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+  const shell = useRef<HTMLElement>(null);
+  const stageRef = useRef<HTMLElement>(null);
+  const video = useRef<HTMLVideoElement | null>(null);
+  const current = snapshot?.current;
+  const gated = !!current?.preflight.oversized && approved !== current.id;
+  const displayable = !!current && !gated;
+  const locked = busy || cropping;
+  const dimensions = current?.preflight.dimensions;
+  const presentation = useImagePresentation(
+    displayable ? current.id : null,
+    dimensions ?? null,
   );
-  const canDisplayCurrent = Boolean(current && !shouldGateOversizedImage);
-  const hasOpenDialog =
-    isOversizedDialogOpen || isRenameDialogOpen || isTrashDialogOpen;
-  const activeSequenceOrdering =
-    snapshot?.sequence_ordering ?? defaultSequenceOrdering;
   const {
     mode,
     scale,
-    isPannable,
-    isPanning,
-    imageClassName,
+    mediaRef,
     imageStyle,
+    isPanning,
     zoomIn,
     zoomOut,
-    resetActualSize,
     fitToWindow,
+    resetActualSize,
     startPan,
     updatePan,
     endPan,
-  } = useImagePresentation(canDisplayCurrent ? (current?.id ?? null) : null);
-  useEffect(() => {
-    const update = () => setViewport(currentViewport());
-    window.addEventListener("resize", update);
+  } = presentation;
+  const displayUrl =
+    current && current.kind === "image" && mode === "fit"
+      ? `${current.url}?w=${viewport.width}&h=${viewport.height}`
+      : current?.url;
+  const canCrop =
+    displayable && !!current?.preflight.crop_supported && !!dimensions;
+  const renameError = !renameDraft.trim()
+    ? "Enter a filename."
+    : renameDraft.trim().startsWith(".")
+      ? "The name cannot start with a dot."
+      : /[/\\]/.test(renameDraft)
+        ? "The name cannot contain / or \\."
+        : null;
 
-    return () => window.removeEventListener("resize", update);
-  }, []);
-
-  // Only fit-to-window can be served a window-sized surface. Zoom and actual
-  // size are defined against the image's own pixels, so they take the original
-  // file and behave exactly as they did before fitting existed.
-  const displayUrl = useMemo(() => {
-    if (!current || current.kind === "video" || mode === "manual") {
-      return current?.url;
-    }
-
-    return `${current.url}?w=${viewport.width}&h=${viewport.height}`;
-  }, [current, mode, viewport.width, viewport.height]);
-
-  const sequenceLabel = useMemo(() => {
-    if (!snapshot?.current_position || snapshot.count === 0) {
-      return "No image open";
-    }
-
-    return `${snapshot.current_position} / ${snapshot.count}`;
-  }, [snapshot]);
-  const renameValidationMessage = useMemo(
-    () => validateRenameStem(renameDraft),
-    [renameDraft],
+  // One action boundary handles errors and prevents duplicate destructive actions,
+  // including two key events that arrive before React has rendered the busy state.
+  const run = useCallback(
+    async (
+      operation: () => Promise<ViewerSnapshot | null>,
+      success?: string,
+    ) => {
+      if (busyRef.current) return;
+      busyRef.current = true;
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const next = await operation();
+        if (next) {
+          setSnapshot(next);
+          setDialog(null);
+          setCropping(false);
+          if (success) setNotice(success);
+        }
+      } catch (error) {
+        setError(backendErrorMessage(error));
+      } finally {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    },
+    [],
   );
 
   useEffect(() => {
-    let cancelled = false;
-
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    getViewerSnapshot()
-      .then((initialSnapshot) => {
-        if (!cancelled) {
-          setSnapshot((currentSnapshot) => currentSnapshot ?? initialSnapshot);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setErrorMessage(backendErrorMessage(error));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      });
-
+    void run(getViewerSnapshot);
+  }, [run]);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const resize = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => setViewport(viewportSize()), 120);
+    };
+    const changed = () => setFullscreen(!!document.fullscreenElement);
+    window.addEventListener("resize", resize);
+    document.addEventListener("fullscreenchange", changed);
     return () => {
-      cancelled = true;
+      clearTimeout(timer);
+      window.removeEventListener("resize", resize);
+      document.removeEventListener("fullscreenchange", changed);
     };
   }, []);
-
   useEffect(() => {
-    if (!current) {
-      setApprovedOversizedImageId(null);
-      setIsOversizedDialogOpen(false);
-      return;
-    }
+    if (gated) setDialog("large");
+  }, [current?.id, gated]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
-    if (!current.preflight.oversized) {
-      setIsOversizedDialogOpen(false);
-      return;
-    }
-
-    if (approvedOversizedImageId !== current.id) {
-      setIsOversizedDialogOpen(true);
-    }
-  }, [approvedOversizedImageId, current]);
-
-  const openImagesFromDialog = useCallback(async () => {
-    if (isLoading) {
-      return;
-    }
-
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
+  function openFiles(folder = false) {
+    if (cropping) return;
+    void run(async () => {
+      if (folder) {
+        const path = await pickImageFolder();
+        return path ? openFolder(path) : null;
+      }
       const paths = await pickImageFiles();
-
-      if (paths === null) {
-        return;
-      }
-
-      const nextSnapshot =
-        paths.length === 1
-          ? await openSingleImage(paths[0])
-          : await openImageSelection(paths);
-      setSnapshot(nextSnapshot);
-      setApprovedOversizedImageId(null);
-    } catch (error) {
-      setErrorMessage(backendErrorMessage(error));
-    } finally {
-      setIsLoading(false);
+      return paths
+        ? paths.length === 1
+          ? openSingleImage(paths[0])
+          : openImageSelection(paths)
+        : null;
+    });
+  }
+  function navigate(next: boolean) {
+    if (!locked && current && (snapshot?.count ?? 0) > 1)
+      void run(next ? navigateNext : navigatePrevious);
+  }
+  function beginCrop() {
+    if (!locked && canCrop && loadedUrl === displayUrl) {
+      setError(null);
+      setNotice(null);
+      fitToWindow();
+      setCropping(true);
     }
-  }, [isLoading]);
-
-  const openFolderFromDialog = useCallback(async () => {
-    if (isLoading) {
-      return;
+  }
+  function rename() {
+    if (!current || locked) return;
+    setRenameDraft(current.filename.replace(/\.[^.]+$/, ""));
+    setDialog("rename");
+  }
+  function closeDialog() {
+    if (!busyRef.current) {
+      setDialog(null);
+      setError(null);
     }
-
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const path = await pickImageFolder();
-
-      if (path === null) {
-        return;
-      }
-
-      setSnapshot(await openFolder(path));
-      setApprovedOversizedImageId(null);
-    } catch (error) {
-      setErrorMessage(backendErrorMessage(error));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isLoading]);
-
-  const navigate = useCallback(
-    async (direction: NavigationDirection) => {
-      if (!current || isLoading) {
-        return;
-      }
-
-      setIsLoading(true);
-      setErrorMessage(null);
-
-      try {
-        const nextSnapshot =
-          direction === "next"
-            ? await navigateNext()
-            : await navigatePrevious();
-        setSnapshot(nextSnapshot);
-        setApprovedOversizedImageId(null);
-      } catch (error) {
-        setErrorMessage(backendErrorMessage(error));
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [current, isLoading],
-  );
-
-  const changeSequenceOrdering = useCallback(
-    async (ordering: SequenceOrdering) => {
-      if (ordering === activeSequenceOrdering || isLoading) {
-        return;
-      }
-
-      setIsLoading(true);
-      setErrorMessage(null);
-
-      try {
-        setSnapshot(await setSequenceOrdering(ordering));
-        setApprovedOversizedImageId(null);
-      } catch (error) {
-        setErrorMessage(backendErrorMessage(error));
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [activeSequenceOrdering, isLoading],
-  );
-
-  const openRenameDialog = useCallback(() => {
-    if (!current || isLoading) {
-      return;
-    }
-
-    setRenameDraft("");
-    setIsRenameDialogOpen(true);
-  }, [current, isLoading]);
-
-  const submitRename = useCallback(async () => {
-    if (!current || isLoading) {
-      return;
-    }
-
-    const validationMessage = validateRenameStem(renameDraft);
-    if (validationMessage) {
-      setErrorMessage(validationMessage);
-      return;
-    }
-
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      setSnapshot(await renameCurrentImage(renameDraft.trim()));
-      setApprovedOversizedImageId(null);
-      setIsRenameDialogOpen(false);
-      setRenameDraft("");
-    } catch (error) {
-      setErrorMessage(backendErrorMessage(error));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [current, isLoading, renameDraft]);
-
-  const openTrashDialog = useCallback(() => {
-    if (!current || isLoading) {
-      return;
-    }
-
-    setIsTrashDialogOpen(true);
-  }, [current, isLoading]);
-
-  const confirmTrashDeletion = useCallback(async () => {
-    if (!current || isLoading) {
-      return;
-    }
-
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      setSnapshot(await trashCurrentImage());
-      setApprovedOversizedImageId(null);
-      setIsTrashDialogOpen(false);
-    } catch (error) {
-      setErrorMessage(backendErrorMessage(error));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [current, isLoading]);
-
-  const confirmOversizedImage = useCallback(() => {
-    if (!current) {
-      return;
-    }
-
-    setApprovedOversizedImageId(current.id);
-    setIsOversizedDialogOpen(false);
-  }, [current]);
-
-  const toggleVideoPlayback = useCallback(() => {
-    const video = videoRef.current;
-
-    if (!video) {
-      return false;
-    }
-
-    if (video.paused) {
-      void video.play().catch(() => undefined);
-    } else {
-      video.pause();
-    }
-
-    return true;
-  }, []);
-
-  const minimizeWindow = useCallback(() => {
-    void getCurrentWindow().minimize();
-  }, []);
-
-  const toggleMaximizeWindow = useCallback(() => {
-    void getCurrentWindow().toggleMaximize();
-  }, []);
-
-  const closeWindow = useCallback(() => {
-    void getCurrentWindow().close();
-  }, []);
-
-  const toggleFullscreen = useCallback(async () => {
-    const viewerShell = viewerShellRef.current;
-
-    if (!viewerShell) {
-      return;
-    }
-
-    if (document.fullscreenElement) {
-      await document.exitFullscreen();
-      return;
-    }
-
-    await viewerShell.requestFullscreen();
-  }, []);
-
-  const closeTransientUi = useCallback(() => {
-    if (isRenameDialogOpen) {
-      setIsRenameDialogOpen(false);
-      return true;
-    }
-
-    if (isTrashDialogOpen) {
-      setIsTrashDialogOpen(false);
-      return true;
-    }
-
-    if (isOversizedDialogOpen) {
-      setIsOversizedDialogOpen(false);
-      return true;
-    }
-
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-      return true;
-    }
-
-    if (errorMessage) {
-      setErrorMessage(null);
-      return true;
-    }
-
-    return false;
-  }, [
-    errorMessage,
-    isOversizedDialogOpen,
-    isRenameDialogOpen,
-    isTrashDialogOpen,
-  ]);
+  }
+  function toggleFullscreen() {
+    void (
+      document.fullscreenElement
+        ? document.exitFullscreen()
+        : shell.current?.requestFullscreen()
+    )?.catch((error) => setError(backendErrorMessage(error)));
+  }
+  function windowAction(action: "minimize" | "toggleMaximize" | "close") {
+    if (isTauri())
+      void getCurrentWindow()
+        [action]()
+        .catch((error) => setError(backendErrorMessage(error)));
+  }
 
   useEffect(() => {
-    const onFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement === viewerShellRef.current);
-    };
-
-    document.addEventListener("fullscreenchange", onFullscreenChange);
-    return () =>
-      document.removeEventListener("fullscreenchange", onFullscreenChange);
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) {
-        return;
-      }
-
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey) return;
       if (event.key === "Escape") {
-        if (closeTransientUi()) {
+        if (busyRef.current) {
           event.preventDefault();
+          return;
         }
-        return;
-      }
-
-      if (isEditableTarget(event.target)) {
-        return;
-      }
-
-      if (hasOpenDialog) {
-        return;
-      }
-
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        void navigate("next");
-        return;
-      }
-
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        void navigate("previous");
-        return;
-      }
-
-      if (event.key === " ") {
-        event.preventDefault();
-        toggleVideoPlayback();
-        return;
-      }
-
-      if (event.key === "Backspace") {
+        if (dialog) closeDialog();
+        else if (cropping) {
+          setCropping(false);
+          setError(null);
+        } else if (document.fullscreenElement) void document.exitFullscreen();
+        else setError(null);
         event.preventDefault();
         return;
       }
-
-      if (event.key === "F11") {
-        event.preventDefault();
-        void toggleFullscreen();
-        return;
-      }
-
+      if (dialog || cropping || busyRef.current) return;
       if (
-        !event.altKey &&
-        !event.metaKey &&
-        (event.key === "+" || event.key === "=" || event.key === "-")
+        (event.target as HTMLElement)?.closest(
+          "input, select, textarea, video, [contenteditable=true]",
+        )
+      )
+        return;
+      const key = event.key.toLowerCase();
+      if (event.ctrlKey || event.metaKey) {
+        if (key === "o") {
+          event.preventDefault();
+          openFiles(event.shiftKey);
+        }
+        return;
+      }
+      const actions: Record<string, () => void> = {
+        o: () => openFiles(event.shiftKey),
+        arrowleft: () => navigate(false),
+        arrowright: () => navigate(true),
+        c: beginCrop,
+        r: rename,
+        delete: () => {
+          if (current) setDialog("trash");
+        },
+        f: () => {
+          if (displayable) fitToWindow();
+        },
+        "0": () => {
+          if (displayable) resetActualSize();
+        },
+        "+": () => {
+          if (displayable) zoomIn();
+        },
+        "=": () => {
+          if (displayable) zoomIn();
+        },
+        "-": () => {
+          if (displayable) zoomOut();
+        },
+        f11: toggleFullscreen,
+        "?": () => setDialog("shortcuts"),
+      };
+      if (
+        key === " " &&
+        video.current &&
+        !(event.target as HTMLElement)?.closest("button")
       ) {
-        if (canDisplayCurrent) {
-          event.preventDefault();
-          if (event.key === "-") {
-            zoomOut();
-          } else {
-            zoomIn();
-          }
-        }
-        return;
-      }
-
-      if (event.altKey || event.ctrlKey || event.metaKey) {
-        return;
-      }
-
-      if (event.key === "0") {
-        if (canDisplayCurrent) {
-          event.preventDefault();
-          resetActualSize();
-        }
-        return;
-      }
-
-      if (event.key.toLowerCase() === "f") {
-        if (canDisplayCurrent) {
-          event.preventDefault();
-          fitToWindow();
-        }
-        return;
-      }
-
-      if (event.key.toLowerCase() === "o") {
         event.preventDefault();
-        void (event.shiftKey ? openFolderFromDialog() : openImagesFromDialog());
-        return;
-      }
-
-      if (event.key.toLowerCase() === "r") {
-        if (current) {
-          event.preventDefault();
-          openRenameDialog();
-        }
-        return;
-      }
-
-      if (event.key === "Delete") {
-        if (current) {
-          event.preventDefault();
-          openTrashDialog();
-        }
+        if (video.current.paused)
+          void video.current
+            .play()
+            .catch((error) => setError(backendErrorMessage(error)));
+        else video.current.pause();
+      } else if (actions[key]) {
+        event.preventDefault();
+        actions[key]();
       }
     };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    canDisplayCurrent,
-    closeTransientUi,
-    current,
-    fitToWindow,
-    hasOpenDialog,
-    navigate,
-    openFolderFromDialog,
-    openImagesFromDialog,
-    openRenameDialog,
-    openTrashDialog,
-    resetActualSize,
-    toggleFullscreen,
-    toggleVideoPlayback,
-    zoomIn,
-    zoomOut,
-  ]);
+  useEffect(() => {
+    const stage = stageRef.current;
+    const wheel = (event: WheelEvent) => {
+      if (!event.ctrlKey || !displayable || dialog || busy) return;
+      event.preventDefault();
+      if (event.deltaY < 0) zoomIn();
+      else if (event.deltaY > 0) zoomOut();
+    };
+    stage?.addEventListener("wheel", wheel, { passive: false });
+    return () => stage?.removeEventListener("wheel", wheel);
+  });
 
+  const errorBanner = error && (
+    <div className="message message--error" role="alert">
+      <span>{error}</span>
+      <button aria-label="Dismiss error" onClick={() => setError(null)}>
+        ×
+      </button>
+    </div>
+  );
   return (
-    <main ref={viewerShellRef} className="viewer-shell" aria-busy={isLoading}>
-      <header className="window-titlebar" aria-label="Window controls">
-        <div className="window-titlebar__drag-region" data-tauri-drag-region>
-          <span className="window-titlebar__title" data-tauri-drag-region>
-            Manzar
-          </span>
+    <main
+      ref={shell}
+      className={`viewer-shell${cropping ? " is-cropping" : ""}`}
+      aria-busy={busy}
+    >
+      <header className="window-titlebar">
+        <div className="window-brand" data-tauri-drag-region>
+          <img src="/manzar-logo.svg" alt="" />
+          <span data-tauri-drag-region>Manzar</span>
         </div>
-        <div className="window-titlebar__controls">
+        <div
+          className="window-filename"
+          title={current?.filename}
+          data-tauri-drag-region
+        >
+          {current?.filename ?? "Image viewer"}
+        </div>
+        <div className="window-actions">
           <button
-            type="button"
-            className="window-titlebar__button"
-            onClick={minimizeWindow}
             aria-label="Minimize window"
-            title="Minimize"
+            onClick={() => windowAction("minimize")}
           >
-            <span aria-hidden="true">−</span>
+            −
           </button>
           <button
-            type="button"
-            className="window-titlebar__button"
-            onClick={toggleMaximizeWindow}
             aria-label="Maximize or restore window"
-            title="Maximize or restore"
+            onClick={() => windowAction("toggleMaximize")}
           >
-            <span aria-hidden="true">□</span>
+            □
           </button>
           <button
-            type="button"
-            className="window-titlebar__button window-titlebar__button--close"
-            onClick={closeWindow}
+            className="window-close"
             aria-label="Close window"
-            title="Close"
+            disabled={busy}
+            onClick={() => windowAction("close")}
           >
-            <span aria-hidden="true">×</span>
+            ×
           </button>
         </div>
       </header>
-
-      <section
-        className={`viewer-stage${isPannable ? " viewer-stage--pannable" : ""}${isPanning ? " viewer-stage--panning" : ""}`}
-        aria-label="Image viewer"
-        onWheel={(event) => {
-          if (!event.ctrlKey || !canDisplayCurrent || hasOpenDialog) {
-            return;
-          }
-
-          event.preventDefault();
-          if (event.deltaY < 0) {
-            zoomIn();
-          } else if (event.deltaY > 0) {
-            zoomOut();
-          }
-        }}
-        onPointerDown={(event) => {
-          if (!canDisplayCurrent || !isPannable || event.button !== 0) {
-            return;
-          }
-
-          event.preventDefault();
-          event.currentTarget.setPointerCapture(event.pointerId);
-          startPan(event.pointerId, event.clientX, event.clientY);
-        }}
-        onPointerMove={(event) => {
-          updatePan(event.pointerId, event.clientX, event.clientY);
-        }}
-        onPointerUp={(event) => {
-          endPan(event.pointerId);
-        }}
-        onPointerCancel={(event) => {
-          endPan(event.pointerId);
-        }}
-      >
-        {canDisplayCurrent && current ? (
-          <div
-            className={`viewer-image-frame${mode === "fit" ? " viewer-image-frame--fit" : ""}`}
-          >
-            {current.kind === "video" ? (
-              <video
-                // Keyed so navigating away tears the element down and releases
-                // its decode buffers instead of swapping src on a live player.
-                key={current.id}
-                ref={videoRef}
-                className={imageClassName}
-                style={imageStyle}
-                src={displayUrl}
-                controls
-                autoPlay
-                preload="metadata"
-                aria-label="Current video"
-              />
-            ) : (
-              <img
-                className={imageClassName}
-                style={imageStyle}
-                src={displayUrl}
-                alt="Current image"
-                draggable={false}
-              />
-            )}
-          </div>
-        ) : current && shouldGateOversizedImage ? (
-          <div className="empty-state">
-            <p className="eyebrow">Large image</p>
-            <h1>Display paused</h1>
-            <p>This image may be slow to display.</p>
-            <button
-              type="button"
-              className="inline-action"
-              onClick={() => setIsOversizedDialogOpen(true)}
-              disabled={isLoading}
-            >
-              Review Warning
-            </button>
-          </div>
-        ) : (
-          <div className="empty-state">
-            <img
-              className="app-logo"
-              src="/manzar-logo.svg"
-              alt=""
-              aria-hidden="true"
-            />
-            <p className="eyebrow">Manzar image viewer</p>
-            <h1>No image open</h1>
-            <p>Open an image or folder to start viewing.</p>
-          </div>
-        )}
-
-        {isLoading ? <div className="status-pill">Loading…</div> : null}
-
-        {errorMessage ? (
-          <div className="error-banner" role="alert">
-            {errorMessage}
-          </div>
-        ) : null}
-
-        {canDisplayCurrent && current?.preflight.oversized ? (
-          <div className="warning-banner" role="status">
-            Large image: display may be slow.
-          </div>
-        ) : null}
-      </section>
-
-      <footer className="viewer-controls" aria-label="Viewer controls">
-        <div className="viewer-controls__group viewer-controls__group--start">
-          <button
-            type="button"
-            className="viewer-icon-button"
-            onClick={() => void openImagesFromDialog()}
-            disabled={isLoading}
-            aria-label="Open images"
-            title="Open images… (O)"
-            aria-keyshortcuts="O"
-          >
-            <ControlIcon name="image" />
-          </button>
-          <button
-            type="button"
-            className="viewer-icon-button"
-            onClick={() => void openFolderFromDialog()}
-            disabled={isLoading}
-            aria-label="Open folder"
-            title="Open folder… (Shift+O)"
-            aria-keyshortcuts="Shift+O"
-          >
-            <ControlIcon name="folder" />
-          </button>
-          <label className="ordering-control">
+      <nav className="file-toolbar" aria-label="File controls">
+        <div className="button-group">
+          <Tool
+            icon="image"
+            label="Open images"
+            shortcut="O"
+            disabled={locked}
+            onClick={() => openFiles()}
+            text="Open"
+          />
+          <Tool
+            icon="folder"
+            label="Open folder"
+            shortcut="Shift+O"
+            disabled={locked}
+            onClick={() => openFiles(true)}
+          />
+          <span className="separator" />
+          <label className="sort-control">
             <span>Sort</span>
             <select
-              value={activeSequenceOrdering}
+              aria-label="Sequence ordering"
+              value={snapshot?.sequence_ordering ?? "newest_modified_first"}
+              disabled={locked || !current}
               onChange={(event) =>
-                void changeSequenceOrdering(
-                  event.currentTarget.value as SequenceOrdering,
+                void run(() =>
+                  setSequenceOrdering(event.target.value as SequenceOrdering),
                 )
               }
-              disabled={isLoading}
-              aria-label="Sequence ordering"
-              title="Sequence ordering"
             >
-              {sequenceOrderingOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
+              {orderings.map(([value, label]) => (
+                <option value={value} key={value}>
+                  {label}
                 </option>
               ))}
             </select>
           </label>
         </div>
-
-        <div className="viewer-controls__group viewer-controls__group--center">
-          <button
-            type="button"
-            className="viewer-icon-button viewer-icon-button--nav"
-            onClick={() => void navigate("previous")}
-            disabled={!current || isLoading}
-            aria-label="Previous"
-            title="Previous (←)"
-            aria-keyshortcuts="ArrowLeft"
-          >
-            <ControlIcon name="chevron-left" />
-          </button>
-          <span className="sequence-position">{sequenceLabel}</span>
-          <button
-            type="button"
-            className="viewer-icon-button viewer-icon-button--nav"
-            onClick={() => void navigate("next")}
-            disabled={!current || isLoading}
-            aria-label="Next"
-            title="Next (→)"
-            aria-keyshortcuts="ArrowRight"
-          >
-            <ControlIcon name="chevron-right" />
-          </button>
+        <div className="button-group file-actions">
+          <Tool
+            icon="crop"
+            label="Crop image"
+            shortcut="C"
+            text="Crop"
+            aria-pressed={cropping}
+            disabled={locked || !canCrop || loadedUrl !== displayUrl}
+            title={
+              !canCrop && current
+                ? "Cropping is available for still PNG, JPEG, WebP and BMP images"
+                : undefined
+            }
+            onClick={beginCrop}
+          />
+          <Tool
+            icon="rename"
+            label="Rename"
+            shortcut="R"
+            disabled={locked || !current}
+            onClick={rename}
+          />
+          <Tool
+            icon="trash"
+            label="Move to trash"
+            shortcut="Delete"
+            disabled={locked || !current}
+            onClick={() => setDialog("trash")}
+          />
         </div>
-
-        <div className="viewer-controls__group viewer-controls__group--end">
-          <button
-            type="button"
-            className="viewer-icon-button"
-            onClick={zoomOut}
-            disabled={!canDisplayCurrent}
-            aria-label="Zoom out"
-            title="Zoom out (-)"
-            aria-keyshortcuts="-"
-          >
-            <ControlIcon name="zoom-out" />
-          </button>
-          <button
-            type="button"
-            className="viewer-icon-button"
-            onClick={resetActualSize}
-            disabled={!canDisplayCurrent}
-            aria-label="Actual size"
-            title="Actual size (0)"
-            aria-keyshortcuts="0"
-          >
-            <ControlIcon name="actual-size" />
-          </button>
-          <button
-            type="button"
-            className="viewer-icon-button"
-            onClick={fitToWindow}
-            disabled={!canDisplayCurrent}
-            aria-label="Fit"
-            title="Fit (F)"
-            aria-keyshortcuts="F"
-          >
-            <ControlIcon name="fit" />
-          </button>
-          <button
-            type="button"
-            className="viewer-icon-button"
-            onClick={zoomIn}
-            disabled={!canDisplayCurrent}
-            aria-label="Zoom in"
-            title="Zoom in (+)"
-            aria-keyshortcuts="+ ="
-          >
-            <ControlIcon name="zoom-in" />
-          </button>
-          <span className="zoom-status" aria-live="polite">
-            {mode === "fit" ? "Fit" : `${Math.round(scale * 100)}%`}
-          </span>
-          <button
-            type="button"
-            className="viewer-icon-button"
-            onClick={() => void toggleFullscreen()}
-            aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-            title={isFullscreen ? "Exit fullscreen (F11)" : "Fullscreen (F11)"}
-            aria-keyshortcuts="F11"
-          >
-            <ControlIcon
-              name={isFullscreen ? "fullscreen-exit" : "fullscreen-enter"}
-            />
-          </button>
-          <button
-            type="button"
-            className="viewer-icon-button"
-            onClick={openRenameDialog}
-            disabled={!current || isLoading}
-            aria-label="Rename"
-            title="Rename… (R)"
-            aria-keyshortcuts="R"
-          >
-            <ControlIcon name="rename" />
-          </button>
-          <button
-            type="button"
-            className="viewer-icon-button viewer-icon-button--danger danger-button"
-            onClick={openTrashDialog}
-            disabled={!current || isLoading}
-            aria-label="Trash"
-            title="Trash… (Delete)"
-            aria-keyshortcuts="Delete"
-          >
-            <ControlIcon name="trash" />
-          </button>
-        </div>
-      </footer>
-
-      {isOversizedDialogOpen && current && shouldGateOversizedImage ? (
-        <div className="dialog-backdrop" role="presentation">
+      </nav>
+      {cropping && current && dimensions ? (
+        <CropEditor
+          key={current.id}
+          url={`${current.url}?w=${viewport.width}&h=${viewport.height}`}
+          size={dimensions}
+          busy={busy}
+          onCancel={() => {
+            setCropping(false);
+            setError(null);
+          }}
+          onError={() =>
+            setError(
+              "The image could not be displayed. Reopen it to try again.",
+            )
+          }
+          onSave={(rect) =>
+            void run(
+              () => cropCurrentImage(current.id, rect),
+              "Crop saved · original image replaced",
+            )
+          }
+        />
+      ) : (
+        <>
           <section
-            className="viewer-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="oversized-dialog-title"
-          >
-            <p className="eyebrow">Large image</p>
-            <h2 id="oversized-dialog-title">Display this image?</h2>
-            <p>
-              This image may slow down the viewer while it is being displayed.
-            </p>
-            <OversizedDetails preflight={current.preflight} />
-            <div className="dialog-actions">
-              <button
-                type="button"
-                onClick={() => setIsOversizedDialogOpen(false)}
-              >
-                Keep paused
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={confirmOversizedImage}
-              >
-                Display image
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
-
-      {isRenameDialogOpen ? (
-        <div className="dialog-backdrop" role="presentation">
-          <form
-            className="viewer-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="rename-dialog-title"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submitRename();
+            ref={stageRef}
+            className={`viewer-stage${mode === "manual" && current?.kind === "image" ? " is-pannable" : ""}${isPanning ? " is-panning" : ""}`}
+            aria-label="Image viewer"
+            onDoubleClick={(event) => {
+              if (
+                displayable &&
+                current.kind === "image" &&
+                event.target === mediaRef.current
+              ) {
+                if (mode === "fit") resetActualSize();
+                else fitToWindow();
+              }
             }}
+            onPointerDown={(event) => {
+              if (
+                !displayable ||
+                mode !== "manual" ||
+                current.kind === "video" ||
+                event.button !== 0 ||
+                dialog
+              )
+                return;
+              event.preventDefault();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              startPan(event.pointerId, event.clientX, event.clientY);
+            }}
+            onPointerMove={(event) =>
+              updatePan(event.pointerId, event.clientX, event.clientY)
+            }
+            onPointerUp={endPan}
+            onPointerCancel={endPan}
           >
-            <p className="eyebrow">Current image file</p>
-            <h2 id="rename-dialog-title">Rename current image</h2>
-            <p>
-              Enter only the new filename stem. Manzar preserves the extension
-              and keeps the file in the same folder.
-            </p>
-            <label className="text-field">
-              <span>New filename stem</span>
-              <input
-                autoFocus
-                value={renameDraft}
-                onChange={(event) => setRenameDraft(event.currentTarget.value)}
-                placeholder="new-image-name"
-              />
-            </label>
-            {renameValidationMessage ? (
-              <p className="dialog-validation">{renameValidationMessage}</p>
-            ) : null}
-            <div className="dialog-actions">
-              <button
-                type="button"
-                onClick={() => setIsRenameDialogOpen(false)}
-                disabled={isLoading}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="primary-button"
-                disabled={isLoading || renameValidationMessage !== null}
-              >
-                Rename
-              </button>
-            </div>
-          </form>
-        </div>
-      ) : null}
-
-      {isTrashDialogOpen ? (
-        <div className="dialog-backdrop" role="presentation">
-          <section
-            className="viewer-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="trash-dialog-title"
-          >
-            <p className="eyebrow">Trash deletion</p>
-            <h2 id="trash-dialog-title">Move current image to trash?</h2>
-            <p>
-              This applies only to the image currently being viewed. If it
-              succeeds, Manzar will show the next image or an empty state.
-            </p>
-            <div className="dialog-actions">
-              <button
-                type="button"
-                onClick={() => setIsTrashDialogOpen(false)}
-                disabled={isLoading}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="danger-button"
-                onClick={() => void confirmTrashDeletion()}
-                disabled={isLoading}
-              >
-                Move to trash
-              </button>
-            </div>
+            {displayable ? (
+              <div className="viewer-image-frame">
+                {current.kind === "video" ? (
+                  <video
+                    key={current.id}
+                    ref={(element) => {
+                      video.current = element;
+                      mediaRef.current = element;
+                    }}
+                    className={`viewer-image viewer-image--${mode}`}
+                    style={imageStyle}
+                    src={displayUrl}
+                    controls
+                    autoPlay
+                    preload="metadata"
+                    aria-label={current.filename}
+                    onError={() =>
+                      setError(
+                        "This video could not be played. Check that its codec is supported.",
+                      )
+                    }
+                  />
+                ) : (
+                  <img
+                    key={current.id}
+                    ref={(element) => {
+                      mediaRef.current = element;
+                    }}
+                    className={`viewer-image viewer-image--${mode}`}
+                    style={imageStyle}
+                    src={displayUrl}
+                    alt={current.filename}
+                    draggable={false}
+                    decoding="async"
+                    onLoad={() => setLoadedUrl(displayUrl ?? null)}
+                    onError={() => {
+                      setLoadedUrl(null);
+                      setError(
+                        "This image could not be displayed. Check that the file is still available and is a valid image.",
+                      );
+                    }}
+                  />
+                )}
+              </div>
+            ) : gated ? (
+              <div className="empty-state">
+                <p className="eyebrow">Large image</p>
+                <h1>Take a moment.</h1>
+                <p>This image may need extra time and memory to display.</p>
+                <button
+                  className="primary-button"
+                  onClick={() => setDialog("large")}
+                >
+                  Review image
+                </button>
+              </div>
+            ) : (
+              <div className="empty-state">
+                <div className="empty-viewfinder">
+                  <img src="/manzar-logo.svg" alt="" />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </div>
+                <p className="eyebrow">Your files. A little closer.</p>
+                <h1>A closer look.</h1>
+                <p>
+                  Open an image, a video, or a whole folder.
+                  <br />
+                  Just your files, ready to view.
+                </p>
+                <div className="empty-actions">
+                  <button
+                    className="primary-button"
+                    disabled={busy}
+                    onClick={() => openFiles()}
+                  >
+                    <Icon name="image" />
+                    Open images<kbd>O</kbd>
+                  </button>
+                  <button disabled={busy} onClick={() => openFiles(true)}>
+                    <Icon name="folder" />
+                    Open folder
+                  </button>
+                </div>
+                <div className="empty-formats">
+                  PNG · JPEG · WEBP · GIF · BMP
+                  <span>MP4 · MOV · MKV · WEBM</span>
+                </div>
+              </div>
+            )}
+            {current && displayable && (snapshot?.count ?? 0) > 1 && (
+              <div className="stage-navigation">
+                <Tool
+                  icon="left"
+                  label="Previous image"
+                  shortcut="ArrowLeft"
+                  disabled={busy}
+                  onClick={() => navigate(false)}
+                />
+                <Tool
+                  icon="right"
+                  label="Next image"
+                  shortcut="ArrowRight"
+                  disabled={busy}
+                  onClick={() => navigate(true)}
+                />
+              </div>
+            )}
           </section>
+          <footer className="viewer-footer">
+            <div className="file-details">
+              {current ? (
+                <>
+                  <span className="file-extension">
+                    {current.filename.split(".").pop()?.toUpperCase()}
+                  </span>
+                  {dimensions && (
+                    <span>
+                      {dimensions.width.toLocaleString()} ×{" "}
+                      {dimensions.height.toLocaleString()}
+                    </span>
+                  )}
+                  <span>{formatBytes(current.preflight.file_size_bytes)}</span>
+                </>
+              ) : (
+                <span>Local files, in focus.</span>
+              )}
+            </div>
+            <div className="view-controls">
+              <Tool
+                icon="minus"
+                label="Zoom out"
+                shortcut="-"
+                disabled={!displayable}
+                onClick={zoomOut}
+              />
+              <button
+                className="zoom-value"
+                aria-label="Actual size"
+                title="Actual size (0)"
+                disabled={!displayable}
+                onClick={resetActualSize}
+              >
+                {mode === "fit" ? "Fit" : `${Math.round(scale * 100)}%`}
+              </button>
+              <Tool
+                icon="plus"
+                label="Zoom in"
+                shortcut="+"
+                disabled={!displayable}
+                onClick={zoomIn}
+              />
+              <span className="separator" />
+              <Tool
+                icon="fit"
+                label="Fit to window"
+                shortcut="F"
+                aria-pressed={mode === "fit" && displayable}
+                disabled={!displayable}
+                onClick={fitToWindow}
+              />
+              <Tool
+                icon="fullscreen"
+                label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+                shortcut="F11"
+                onClick={toggleFullscreen}
+              />
+            </div>
+            <div className="sequence-controls">
+              <span className="sequence-position" aria-live="polite">
+                {current
+                  ? `${snapshot?.current_position} / ${snapshot?.count}`
+                  : "No file open"}
+              </span>
+              <Tool
+                icon="help"
+                label="Keyboard shortcuts"
+                shortcut="?"
+                onClick={() => setDialog("shortcuts")}
+              />
+            </div>
+          </footer>
+        </>
+      )}
+      {!dialog && (
+        <div className="messages">
+          {errorBanner}
+          {notice && (
+            <div className="message" role="status">
+              <Icon name="check" />
+              {notice}
+            </div>
+          )}
+          {busy && (
+            <div className="message" role="status">
+              <span className="spinner" />
+              {cropping ? "Saving crop…" : "Opening…"}
+            </div>
+          )}
         </div>
-      ) : null}
+      )}
+      {dialog && (
+        <Dialog
+          title={
+            dialog === "rename"
+              ? "Rename file"
+              : dialog === "trash"
+                ? "Move to trash?"
+                : dialog === "large"
+                  ? "Display this image?"
+                  : "Keyboard shortcuts"
+          }
+          onClose={closeDialog}
+          busy={busy}
+        >
+          {dialog === "rename" && (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!renameError)
+                  void run(
+                    () => renameCurrentImage(renameDraft.trim()),
+                    "File renamed",
+                  );
+              }}
+            >
+              <p className="dialog-description">
+                The file stays in the same folder with its current extension.
+              </p>
+              <label className="text-field">
+                Filename
+                <input
+                  autoFocus
+                  value={renameDraft}
+                  disabled={busy}
+                  onFocus={(event) => event.target.select()}
+                  onChange={(event) => setRenameDraft(event.target.value)}
+                  aria-invalid={!!renameError}
+                  aria-describedby={renameError ? "rename-error" : undefined}
+                />
+              </label>
+              {renameError && (
+                <p id="rename-error" className="validation">
+                  {renameError}
+                </p>
+              )}
+              {errorBanner}
+              <div className="dialog-actions">
+                <button type="button" disabled={busy} onClick={closeDialog}>
+                  Cancel
+                </button>
+                <button
+                  className="primary-button"
+                  disabled={busy || !!renameError}
+                >
+                  {busy ? "Renaming…" : "Rename"}
+                </button>
+              </div>
+            </form>
+          )}
+          {dialog === "trash" && (
+            <>
+              <p className="dialog-description">
+                <strong>{current?.filename}</strong> will move to your desktop
+                trash. You can restore it from there.
+              </p>
+              {errorBanner}
+              <div className="dialog-actions">
+                <button autoFocus disabled={busy} onClick={closeDialog}>
+                  Cancel
+                </button>
+                <button
+                  className="danger-button"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(trashCurrentImage, "File moved to trash")
+                  }
+                >
+                  {busy ? "Moving…" : "Move to trash"}
+                </button>
+              </div>
+            </>
+          )}
+          {dialog === "large" && (
+            <>
+              <p className="dialog-description">
+                This image may take extra time and memory to display.
+              </p>
+              <p className="large-details">
+                {dimensions
+                  ? `${dimensions.width.toLocaleString()} × ${dimensions.height.toLocaleString()} pixels · `
+                  : ""}
+                {formatBytes(current?.preflight.file_size_bytes ?? 0)}
+              </p>
+              <div className="dialog-actions">
+                <button autoFocus onClick={closeDialog}>
+                  Keep paused
+                </button>
+                <button
+                  className="primary-button"
+                  onClick={() => {
+                    setApproved(current?.id ?? null);
+                    setDialog(null);
+                  }}
+                >
+                  Display image
+                </button>
+              </div>
+            </>
+          )}
+          {dialog === "shortcuts" && (
+            <>
+              <dl className="shortcuts">
+                {shortcuts.map(([label, key]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>
+                      <kbd>{key}</kbd>
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="dialog-description">
+                Double-click an image to toggle actual size. Ctrl + scroll to
+                zoom.
+              </p>
+              <div className="dialog-actions">
+                <button autoFocus onClick={closeDialog}>
+                  Done
+                </button>
+              </div>
+            </>
+          )}
+        </Dialog>
+      )}
     </main>
   );
 }
 
-function ControlIcon({ name }: { name: ControlIconName }) {
-  switch (name) {
-    case "actual-size":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M7 7h10v10H7z" />
-          <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
-        </svg>
-      );
-    case "chevron-left":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="m14.5 6-6 6 6 6" />
-        </svg>
-      );
-    case "chevron-right":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="m9.5 6 6 6-6 6" />
-        </svg>
-      );
-    case "fit":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M9 4H4v5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
-          <path d="M9 9h6v6H9z" />
-        </svg>
-      );
-    case "folder":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M3.5 7.5h6l1.7 2h9.3v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />
-          <path d="M3.5 7.5v-1a2 2 0 0 1 2-2h3.2l1.7 2h5.1a2 2 0 0 1 2 2v1" />
-        </svg>
-      );
-    case "fullscreen-enter":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M9 4H4v5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
-        </svg>
-      );
-    case "fullscreen-exit":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M9 4v5H4M15 4v5h5M20 15h-5v5M4 15h5v5" />
-        </svg>
-      );
-    case "image":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M5 5h14v14H5z" />
-          <path d="m7.5 16 3.2-3.4 2.4 2.4 1.9-2.1 1.5 3.1" />
-          <path d="M15.5 8.5h.01" />
-        </svg>
-      );
-    case "rename":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="m5 16.8-.6 2.8 2.8-.6L18.5 7.7l-2.2-2.2z" />
-          <path d="m14.8 7 2.2 2.2" />
-          <path d="M11 19.5h8" />
-        </svg>
-      );
-    case "trash":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M5 7h14" />
-          <path d="M9 7V5h6v2" />
-          <path d="m7 7 .8 12h8.4L17 7" />
-          <path d="M10.5 10.5v5M13.5 10.5v5" />
-        </svg>
-      );
-    case "zoom-in":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M10.5 17a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z" />
-          <path d="m15.5 15.5 4 4" />
-          <path d="M10.5 8v5M8 10.5h5" />
-        </svg>
-      );
-    case "zoom-out":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M10.5 17a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z" />
-          <path d="m15.5 15.5 4 4" />
-          <path d="M8 10.5h5" />
-        </svg>
-      );
-  }
-}
-
-function OversizedDetails({ preflight }: { preflight: ImagePreflight }) {
-  if (preflight.reasons.length === 0) {
-    return null;
-  }
-
+function Dialog({
+  title,
+  children,
+  onClose,
+  busy,
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+  busy: boolean;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    ref.current?.showModal();
+    return () => {
+      previous?.focus();
+    };
+  }, []);
   return (
-    <ul className="warning-details">
-      {preflight.reasons.map((reason, index) => (
-        <li key={index}>{describeOversizedReason(reason)}</li>
-      ))}
-    </ul>
+    <dialog
+      ref={ref}
+      className="viewer-dialog"
+      aria-labelledby="dialog-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onClose();
+      }}
+    >
+      <h2 id="dialog-title">{title}</h2>
+      {children}
+    </dialog>
   );
 }
 
-function describeOversizedReason(reason: OversizedImageReason): string {
-  if (reason.reason === "file_size") {
-    return `File size ${formatBytes(reason.actual_bytes)} exceeds ${formatBytes(
-      reason.threshold_bytes,
-    )}.`;
-  }
-
-  return `Estimated decoded RGBA memory ${formatBytes(
-    reason.estimated_bytes,
-  )} exceeds ${formatBytes(reason.threshold_bytes)} (${reason.width} × ${
-    reason.height
-  }).`;
-}
-
-function formatBytes(bytes: number): string {
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unitIndex = 0;
-
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${
-    units[unitIndex]
-  }`;
-}
-
-function validateRenameStem(stem: string): string | null {
-  const trimmed = stem.trim();
-
-  if (trimmed.length === 0) {
-    return "Enter a new filename stem.";
-  }
-
-  if (trimmed.startsWith(".")) {
-    return "The new name cannot start with a dot.";
-  }
-
-  if (trimmed.includes("/") || trimmed.includes("\\")) {
-    return "The new name cannot contain path separators.";
-  }
-
-  return null;
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-
+function Tool({
+  icon,
+  label,
+  shortcut,
+  text,
+  title,
+  ...props
+}: {
+  icon: keyof typeof icons;
+  label: string;
+  shortcut?: string;
+  text?: string;
+} & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    target.isContentEditable ||
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement
+    <button
+      type="button"
+      className={`tool${text ? " tool--text" : ""}`}
+      aria-label={label}
+      aria-keyshortcuts={shortcut}
+      title={title ?? `${label}${shortcut ? ` (${shortcut})` : ""}`}
+      {...props}
+    >
+      <Icon name={icon} />
+      {text && <span>{text}</span>}
+    </button>
   );
 }
-
-export default App;
+const icons = {
+  image: "M4 4h16v16H4z M4 15l5-5 5 6 3-3 3 3 M15 8h.01",
+  folder: "M3 7V5h6l2 2h10v13H3z",
+  crop: "M7 3v14h14 M3 7h14v14 M7 7l10 10",
+  rename: "m4 16-1 5 5-1L20 8l-4-4z M14 6l4 4 M12 21h9",
+  trash: "M4 7h16 M9 7V4h6v3 M6 7l1 14h10l1-14 M10 11v6 M14 11v6",
+  left: "m14 6-6 6 6 6",
+  right: "m10 6 6 6-6 6",
+  plus: "M5 12h14 M12 5v14",
+  minus: "M5 12h14",
+  fit: "M8 3H3v5 M16 3h5v5 M21 16v5h-5 M8 21H3v-5 M8 8h8v8H8z",
+  fullscreen: "M8 3H3v5 M16 3h5v5 M21 16v5h-5 M8 21H3v-5",
+  help: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18 M9.5 9a2.5 2.5 0 1 1 4 2c-1 .7-1.5 1-1.5 2 M12 17h.01",
+  check: "m5 12 4 4L19 6",
+};
+function Icon({ name }: { name: keyof typeof icons }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d={icons[name]} />
+    </svg>
+  );
+}
+function formatBytes(bytes: number) {
+  const unit =
+    bytes >= 1024 ** 3 ? 3 : bytes >= 1024 ** 2 ? 2 : bytes >= 1024 ? 1 : 0;
+  return `${(bytes / 1024 ** unit).toFixed(unit ? 1 : 0)} ${["B", "KB", "MB", "GB"][unit]}`;
+}
