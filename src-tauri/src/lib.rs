@@ -13,7 +13,8 @@ use tauri::{
 
 use crate::core::{
     image_protocol::{
-        image_id_from_protocol_path, serve_media_path, ImageProtocolError, IMAGE_PROTOCOL_SCHEME,
+        image_id_from_protocol_path, serve_media_path_if_current, ImageProtocolError,
+        IMAGE_PROTOCOL_SCHEME,
     },
     image_registry::ApprovedImageRegistry,
     media_server,
@@ -184,11 +185,12 @@ async fn queued_media_response(
             .headers()
             .get(header::RANGE)
             .and_then(|value| value.to_str().ok());
-        media_protocol_response(
+        media_protocol_response_if_current(
             &registry,
             request.uri().path(),
             range,
             viewport_from_query(request.uri().query()),
+            &|| range.is_some() || latest.load(Ordering::Relaxed) == ticket,
         )
     })
     .await
@@ -200,11 +202,22 @@ async fn queued_media_response(
     })
 }
 
+#[cfg(test)]
 fn media_protocol_response(
     registry: &SharedImageRegistry,
     path: &str,
     range: Option<&str>,
     viewport: Option<(u32, u32)>,
+) -> Response<Vec<u8>> {
+    media_protocol_response_if_current(registry, path, range, viewport, &|| true)
+}
+
+fn media_protocol_response_if_current(
+    registry: &SharedImageRegistry,
+    path: &str,
+    range: Option<&str>,
+    viewport: Option<(u32, u32)>,
+    is_current: &impl Fn() -> bool,
 ) -> Response<Vec<u8>> {
     let Some(image_id) = image_id_from_protocol_path(path) else {
         return plain_text_response(StatusCode::BAD_REQUEST, "invalid image id");
@@ -224,7 +237,7 @@ fn media_protocol_response(
     let Some(approved_path) = approved_path else {
         return plain_text_response(StatusCode::NOT_FOUND, "image not found");
     };
-    match serve_media_path(&approved_path, range, viewport) {
+    match serve_media_path_if_current(&approved_path, range, viewport, is_current) {
         Ok(media) => {
             let status = if media.is_partial() {
                 StatusCode::PARTIAL_CONTENT
@@ -243,6 +256,9 @@ fn media_protocol_response(
             response
                 .body(media.into_bytes())
                 .expect("valid media protocol response")
+        }
+        Err(ImageProtocolError::Superseded) => {
+            plain_text_response(StatusCode::REQUEST_TIMEOUT, "image request superseded")
         }
         Err(ImageProtocolError::UnknownImageId) => {
             plain_text_response(StatusCode::NOT_FOUND, "image not found")

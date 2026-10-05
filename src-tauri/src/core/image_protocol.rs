@@ -27,6 +27,7 @@ pub struct ProtocolImageResponse {
 
 #[derive(Debug)]
 pub enum ImageProtocolError {
+    Superseded,
     UnknownImageId,
     UnsupportedImage,
     OversizedImage,
@@ -112,6 +113,20 @@ pub fn serve_media_path(
     range_header: Option<&str>,
     viewport: Option<(u32, u32)>,
 ) -> Result<ProtocolImageResponse, ImageProtocolError> {
+    serve_media_path_if_current(path, range_header, viewport, &|| true)
+}
+
+/// A navigation request can be abandoned without falling back to a full-file
+/// read. The predicate is checked between expensive rendering stages.
+pub fn serve_media_path_if_current(
+    path: &Path,
+    range_header: Option<&str>,
+    viewport: Option<(u32, u32)>,
+    is_current: &impl Fn() -> bool,
+) -> Result<ProtocolImageResponse, ImageProtocolError> {
+    if !is_current() {
+        return Err(ImageProtocolError::Superseded);
+    }
     let kind = media_kind(path).ok_or(ImageProtocolError::UnsupportedImage)?;
     let mime_type = media_mime_type(path).ok_or(ImageProtocolError::UnsupportedImage)?;
     let total_bytes = std::fs::metadata(path)?.len();
@@ -125,7 +140,12 @@ pub fn serve_media_path(
 
         // Fitting declines whenever it cannot improve on the file or would
         // change what the user sees, so falling through is always correct.
-        if let Some(fitted) = viewport.and_then(|viewport| render::fit_image(path, viewport)) {
+        let fitted =
+            viewport.and_then(|viewport| render::fit_image_if_current(path, viewport, is_current));
+        if !is_current() {
+            return Err(ImageProtocolError::Superseded);
+        }
+        if let Some(fitted) = fitted {
             return Ok(ProtocolImageResponse {
                 mime_type: fitted.mime_type,
                 total_bytes: fitted.bytes.len() as u64,

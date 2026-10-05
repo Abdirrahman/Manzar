@@ -12,7 +12,13 @@
 //! smaller than the window behave as they always did.
 
 use super::{crop::still_decoder, metadata_preflight::MAX_SAFE_DECODED_RGBA_BYTES};
-use std::{io::Cursor, path::Path};
+use std::{
+    collections::VecDeque,
+    io::Cursor,
+    path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+    time::SystemTime,
+};
 
 use fast_image_resize::{
     images::{Image as FirImage, ImageRef},
@@ -37,6 +43,47 @@ const FITTED_MIME_TYPE: &str = "image/bmp";
 pub struct FittedImage {
     pub bytes: Vec<u8>,
     pub mime_type: &'static str,
+}
+
+// Cache only window-sized surfaces, never full decoded originals. A byte cap
+// matters more than an image count when a viewer moves between monitors.
+const FIT_CACHE_BYTES: usize = 64 * 1024 * 1024;
+const FIT_CACHE_ENTRIES: usize = 64;
+static FIT_CACHE: OnceLock<Mutex<VecDeque<CachedFit>>> = OnceLock::new();
+
+struct CachedFit {
+    path: PathBuf,
+    viewport: (u32, u32),
+    fingerprint: Fingerprint,
+    image: FittedImage,
+}
+
+#[derive(PartialEq, Eq)]
+struct Fingerprint {
+    len: u64,
+    modified: SystemTime,
+    #[cfg(unix)]
+    identity: (u64, u64, i64, i64),
+}
+
+impl Fingerprint {
+    fn for_path(path: &Path) -> Option<Self> {
+        let metadata = std::fs::metadata(path).ok()?;
+        Some(Self {
+            len: metadata.len(),
+            modified: metadata.modified().ok()?,
+            #[cfg(unix)]
+            identity: {
+                use std::os::unix::fs::MetadataExt;
+                (
+                    metadata.dev(),
+                    metadata.ino(),
+                    metadata.ctime(),
+                    metadata.ctime_nsec(),
+                )
+            },
+        })
+    }
 }
 
 struct Probe {
@@ -73,6 +120,71 @@ impl Probe {
 /// `None` means "serve the original file": either there is nothing to gain or
 /// fitting would change what the user sees.
 pub fn fit_image(path: &Path, viewport: (u32, u32)) -> Option<FittedImage> {
+    fit_image_if_current(path, viewport, &|| true)
+}
+
+pub fn fit_image_if_current(
+    path: &Path,
+    viewport: (u32, u32),
+    is_current: &impl Fn() -> bool,
+) -> Option<FittedImage> {
+    if !is_current() {
+        return None;
+    }
+    let fingerprint = Fingerprint::for_path(path)?;
+    let cache = FIT_CACHE.get_or_init(Mutex::default);
+    if let Ok(mut entries) = cache.lock() {
+        // Also remove obsolete versions so overwriting a file cannot grow the
+        // working set or return an old frame with the same opaque image ID.
+        entries.retain(|entry| entry.path != path || entry.fingerprint == fingerprint);
+        if let Some(index) = entries
+            .iter()
+            .position(|entry| entry.path == path && entry.viewport == viewport)
+        {
+            let entry = entries.remove(index)?;
+            let image = FittedImage {
+                bytes: entry.image.bytes.clone(),
+                mime_type: entry.image.mime_type,
+            };
+            entries.push_back(entry);
+            return Some(image);
+        }
+    }
+    let image = fit_uncached(path, viewport, is_current)?;
+    if !is_current() {
+        return None;
+    }
+    if image.bytes.len() <= FIT_CACHE_BYTES
+        && Fingerprint::for_path(path).as_ref() == Some(&fingerprint)
+    {
+        if let Ok(mut entries) = cache.lock() {
+            entries.retain(|entry| !(entry.path == path && entry.viewport == viewport));
+            let mut bytes: usize = entries.iter().map(|entry| entry.image.bytes.len()).sum();
+            while bytes + image.bytes.len() > FIT_CACHE_BYTES || entries.len() >= FIT_CACHE_ENTRIES
+            {
+                if let Some(removed) = entries.pop_front() {
+                    bytes -= removed.image.bytes.len();
+                }
+            }
+            entries.push_back(CachedFit {
+                path: path.to_path_buf(),
+                viewport,
+                fingerprint,
+                image: FittedImage {
+                    bytes: image.bytes.clone(),
+                    mime_type: image.mime_type,
+                },
+            });
+        }
+    }
+    Some(image)
+}
+
+fn fit_uncached(
+    path: &Path,
+    viewport: (u32, u32),
+    is_current: &impl Fn() -> bool,
+) -> Option<FittedImage> {
     if viewport.0 == 0 || viewport.1 == 0 {
         return None;
     }
@@ -88,6 +200,9 @@ pub fn fit_image(path: &Path, viewport: (u32, u32)) -> Option<FittedImage> {
 
     let (format, mut decoder) = still_decoder(path).ok()?;
     let probe = probe(decoder.as_mut())?;
+    if !is_current() {
+        return None;
+    }
 
     // A profile Manzar cannot honour must reach the engine, which can.
     if probe
@@ -114,7 +229,13 @@ pub fn fit_image(path: &Path, viewport: (u32, u32)) -> Option<FittedImage> {
     };
 
     let mut decoded = decode_to_cover(path, format, decoder, probe.width, probe.height, required)?;
+    if !is_current() {
+        return None;
+    }
     decoded.apply_orientation(probe.orientation);
+    if !is_current() {
+        return None;
+    }
     let resized = match decoded {
         // All RGB channels of a grayscale image are identical. Convolve once
         // before expanding, instead of allocating and convolving three source
@@ -125,6 +246,9 @@ pub fn fit_image(path: &Path, viewport: (u32, u32)) -> Option<FittedImage> {
         }
         image => resize_rgb(&image.into_rgb8(), fitted)?,
     };
+    if !is_current() {
+        return None;
+    }
     // The decoded frame and resizer scratch are released before BMP encoding.
     encode_bmp(&resized)
 }
