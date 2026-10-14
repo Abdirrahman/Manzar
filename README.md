@@ -187,3 +187,7 @@ The release workflow builds Linux, Windows, macOS desktop installers, and an x86
 ## License
 
 [MIT](LICENSE)
+
+## Dependency security
+
+Dependabot checks dependencies and GitHub Actions weekly. The dependency checks workflow also runs `bun audit`, the available frontend checks, and a production build daily and on pull requests. This covers transitive packages in `bun.lock`, which GitHub's dependency graph does not parse.
