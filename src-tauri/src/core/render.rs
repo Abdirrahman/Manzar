@@ -21,8 +21,9 @@ use std::{
 };
 
 use fast_image_resize::{
-    images::{Image as FirImage, ImageRef},
-    FilterType, PixelType, ResizeAlg, ResizeOptions, Resizer,
+    images::{Image as FirImage, TypedImageRef},
+    pixels::{U8x3, U8},
+    FilterType, PixelTrait, ResizeAlg, ResizeOptions, Resizer,
 };
 use image::{
     codecs::bmp::BmpEncoder, metadata::Orientation, DynamicImage, ExtendedColorType, GrayImage,
@@ -241,7 +242,7 @@ fn fit_uncached(
         // before expanding, instead of allocating and convolving three source
         // channels. Keep orientation before convolution for identical rounding.
         DynamicImage::ImageLuma8(gray) => {
-            let pixels = resize_pixels(gray.as_raw(), gray.dimensions(), fitted, PixelType::U8)?;
+            let pixels = resize_pixels::<U8>(gray.as_raw(), gray.dimensions(), fitted)?;
             DynamicImage::ImageLuma8(GrayImage::from_raw(fitted.0, fitted.1, pixels)?).into_rgb8()
         }
         image => resize_rgb(&image.into_rgb8(), fitted)?,
@@ -341,23 +342,24 @@ fn decode_jpeg_at_divisor(bytes: &[u8], divisor: u32) -> Option<RgbImage> {
 /// SIMD convolution — AVX2 or NEON, dispatched at runtime. This is where the
 /// bulk of the measured win comes from, not the scaled decode.
 fn resize_rgb(frame: &RgbImage, target: (u32, u32)) -> Option<RgbImage> {
-    let pixels = resize_pixels(frame.as_raw(), frame.dimensions(), target, PixelType::U8x3)?;
+    let pixels = resize_pixels::<U8x3>(frame.as_raw(), frame.dimensions(), target)?;
     RgbImage::from_raw(target.0, target.1, pixels)
 }
 
-fn resize_pixels(
+fn resize_pixels<P: PixelTrait>(
     pixels: &[u8],
     dimensions: (u32, u32),
     target: (u32, u32),
-    pixel_type: PixelType,
 ) -> Option<Vec<u8>> {
-    let source = ImageRef::new(dimensions.0, dimensions.1, pixels, pixel_type).ok()?;
-    let mut destination = FirImage::new(target.0, target.1, pixel_type);
+    let source = TypedImageRef::<P>::from_buffer(dimensions.0, dimensions.1, pixels).ok()?;
+    let mut destination = FirImage::new(target.0, target.1, P::pixel_type());
 
+    // The dynamic API instantiates every pixel format; this viewer uses only
+    // grayscale and RGB8, with the same convolution and SIMD dispatch.
     Resizer::new()
-        .resize(
+        .resize_typed(
             &source,
-            &mut destination,
+            &mut destination.typed_image_mut::<P>()?,
             &ResizeOptions::new().resize_alg(ResizeAlg::Convolution(FilterType::Lanczos3)),
         )
         .ok()?;
@@ -426,6 +428,42 @@ mod tests {
             image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
         });
         frame.save(path).expect("jpeg fixture");
+    }
+
+    #[test]
+    fn typed_resizing_matches_dynamic_resizing_for_grayscale_and_rgb() {
+        use fast_image_resize::{images::ImageRef, PixelType};
+
+        for pixel_type in [PixelType::U8, PixelType::U8x3] {
+            let dimensions = (31, 23);
+            let pixels = (0..dimensions.0 * dimensions.1 * pixel_type.size() as u32)
+                .map(|index| index.wrapping_mul(37) as u8)
+                .collect::<Vec<_>>();
+            let source = ImageRef::new(dimensions.0, dimensions.1, &pixels, pixel_type).unwrap();
+
+            for target in [(13, 9), (1, 1), dimensions] {
+                let mut expected = FirImage::new(target.0, target.1, pixel_type);
+                Resizer::new()
+                    .resize(
+                        &source,
+                        &mut expected,
+                        &ResizeOptions::new()
+                            .resize_alg(ResizeAlg::Convolution(FilterType::Lanczos3)),
+                    )
+                    .unwrap();
+                let actual = match pixel_type {
+                    PixelType::U8 => resize_pixels::<U8>(&pixels, dimensions, target),
+                    PixelType::U8x3 => resize_pixels::<U8x3>(&pixels, dimensions, target),
+                    _ => unreachable!(),
+                };
+
+                assert_eq!(
+                    actual.unwrap(),
+                    expected.into_vec(),
+                    "{pixel_type:?} {target:?}"
+                );
+            }
+        }
     }
 
     #[test]

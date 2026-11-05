@@ -16,7 +16,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# Capabilities are resolved at build time; runtime ACL mutation is unused.
+tauri = { version = "2", default-features = false, features = ["wry", "compression", "common-controls-v6", "x11", "dbus"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
@@ -30,7 +31,7 @@ tempfile = "3"
 
 [profile.release]
 # One codegen unit plus cross-crate LTO: a smaller binary pages in faster on
-# launch, which is most of a desktop viewer's startup cost. Not stripping, so
-# makepkg can still split out the debug package.
+# launch, which is most of a desktop viewer's startup cost.
 codegen-units = 1
 lto = true
+strip = "symbols"
