@@ -35,3 +35,16 @@ tempfile = "3"
 codegen-units = 1
 lto = true
 strip = "symbols"
+
+# Keep image processing at level 3; optimize UI/runtime glue for size.
+[profile.release.package]
+tauri = { opt-level = "z" }
+tauri-runtime = { opt-level = "z" }
+tauri-runtime-wry = { opt-level = "z" }
+wry = { opt-level = "z" }
+tao = { opt-level = "z" }
+gtk = { opt-level = "z" }
+glib = { opt-level = "z" }
+gio = { opt-level = "z" }
+webkit2gtk = { opt-level = "z" }
+tokio = { opt-level = "z" }

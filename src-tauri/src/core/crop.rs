@@ -6,7 +6,7 @@ use image::{
         webp::WebPEncoder,
     },
     metadata::Orientation,
-    DynamicImage, ImageDecoder, ImageEncoder, ImageFormat, ImageReader,
+    ColorType, ImageDecoder, ImageEncoder, ImageFormat, ImageReader,
 };
 use serde::Deserialize;
 
@@ -18,6 +18,102 @@ pub struct CropRect {
     pub y: u32,
     pub width: u32,
     pub height: u32,
+}
+
+// Keep samples in the decoder's native-endian representation. Pixel geometry
+// needs only a byte stride, not separate imageops for every channel layout.
+pub(super) struct ImagePixels {
+    pub bytes: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub color: ColorType,
+}
+
+impl ImagePixels {
+    pub fn decode(decoder: Box<dyn ImageDecoder>) -> Result<Self, image::ImageError> {
+        let (width, height) = decoder.dimensions();
+        let color = decoder.color_type();
+        let length = decoder.total_bytes();
+        let allocation_error = || {
+            image::ImageError::Limits(image::error::LimitError::from_kind(
+                image::error::LimitErrorKind::InsufficientMemory,
+            ))
+        };
+        if length > MAX_SAFE_DECODED_RGBA_BYTES {
+            return Err(allocation_error());
+        }
+        let length = usize::try_from(length).map_err(|_| allocation_error())?;
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(length)
+            .map_err(|_| allocation_error())?;
+        bytes.resize(length, 0);
+        decoder.read_image(&mut bytes)?;
+        Ok(Self {
+            bytes,
+            width,
+            height,
+            color,
+        })
+    }
+
+    pub fn crop_orient(self, rect: CropRect, orientation: Orientation) -> Result<Self, CropError> {
+        let (width, height) = oriented_dimensions((self.width, self.height), orientation);
+        if rect.width == 0
+            || rect.height == 0
+            || rect.x >= width
+            || rect.y >= height
+            || rect.width > width - rect.x
+            || rect.height > height - rect.y
+        {
+            return Err(CropError::InvalidBounds);
+        }
+        if matches!(orientation, Orientation::NoTransforms)
+            && rect.x == 0
+            && rect.y == 0
+            && rect.width == self.width
+            && rect.height == self.height
+        {
+            return Ok(self);
+        }
+
+        let stride = isize::from(self.color.bytes_per_pixel());
+        let row = self.width as isize * stride;
+        let (x, y) = (rect.x, rect.y);
+        let (sx, sy, dx, dy) = match orientation {
+            Orientation::NoTransforms => (x, y, stride, row),
+            Orientation::FlipHorizontal => (self.width - x - 1, y, -stride, row),
+            Orientation::Rotate180 => (self.width - x - 1, self.height - y - 1, -stride, -row),
+            Orientation::FlipVertical => (x, self.height - y - 1, stride, -row),
+            Orientation::Rotate90FlipH => (y, x, row, stride),
+            Orientation::Rotate90 => (y, self.height - x - 1, -row, stride),
+            Orientation::Rotate270FlipH => (self.width - y - 1, self.height - x - 1, -row, -stride),
+            Orientation::Rotate270 => (self.width - y - 1, x, row, -stride),
+        };
+        let origin = sy as isize * row + sx as isize * stride;
+        let pixel_bytes = stride as usize;
+        let row_bytes = rect.width as usize * pixel_bytes;
+        let mut bytes = vec![0; row_bytes * rect.height as usize];
+        // The validated rectangle stays within a decoded buffer capped at
+        // 512 MiB, so these signed offsets fit even on 32-bit targets.
+        for (y, destination) in bytes.chunks_exact_mut(row_bytes).enumerate() {
+            let start = origin + y as isize * dy;
+            if dx == stride {
+                destination.copy_from_slice(&self.bytes[start as usize..][..row_bytes]);
+            } else {
+                for (x, pixel) in destination.chunks_exact_mut(pixel_bytes).enumerate() {
+                    let offset = (start + x as isize * dx) as usize;
+                    pixel.copy_from_slice(&self.bytes[offset..][..pixel_bytes]);
+                }
+            }
+        }
+        Ok(Self {
+            bytes,
+            width: rect.width,
+            height: rect.height,
+            color: self.color,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -107,14 +203,7 @@ pub fn crop_image(path: &Path, rect: CropRect) -> Result<(), CropError> {
         return Err(CropError::ImageTooLarge);
     }
     let profile = decoder.icc_profile()?;
-    let image = DynamicImage::from_decoder(decoder)?;
-    // Bounds have been checked in display space. Invert EXIF's transform to
-    // select the same source pixels, then transform only the retained region.
-    // This avoids allocating/rotating a full frame that is mostly discarded.
-    let source = source_crop(rect, image.width(), image.height(), orientation);
-    let mut cropped = image.crop_imm(source.x, source.y, source.width, source.height);
-    drop(image);
-    cropped.apply_orientation(orientation);
+    let cropped = ImagePixels::decode(decoder)?.crop_orient(rect, orientation)?;
 
     // Encode beside the source, flush, then atomically replace it. An encoder,
     // permissions or disk-space failure leaves the original untouched; tempfile
@@ -160,34 +249,8 @@ pub fn crop_image(path: &Path, rect: CropRect) -> Result<(), CropError> {
     Ok(())
 }
 
-/// Inverse EXIF mapping for a rectangle already validated in display axes.
-fn source_crop(rect: CropRect, width: u32, height: u32, orientation: Orientation) -> CropRect {
-    let CropRect {
-        x,
-        y,
-        width: w,
-        height: h,
-    } = rect;
-    let (x, y, width, height) = match orientation {
-        Orientation::NoTransforms => (x, y, w, h),
-        Orientation::FlipHorizontal => (width - x - w, y, w, h),
-        Orientation::Rotate180 => (width - x - w, height - y - h, w, h),
-        Orientation::FlipVertical => (x, height - y - h, w, h),
-        Orientation::Rotate90FlipH => (y, x, h, w),
-        Orientation::Rotate90 => (y, height - x - w, h, w),
-        Orientation::Rotate270FlipH => (width - y - h, height - x - w, h, w),
-        Orientation::Rotate270 => (width - y - h, x, h, w),
-    };
-    CropRect {
-        x,
-        y,
-        width,
-        height,
-    }
-}
-
 fn encode_crop(
-    image: &DynamicImage,
+    image: &ImagePixels,
     mut encoder: impl ImageEncoder,
     profile: Option<Vec<u8>>,
 ) -> Result<(), CropError> {
@@ -196,14 +259,226 @@ fn encode_crop(
             .set_icc_profile(profile)
             .map_err(image::ImageError::Unsupported)?;
     }
-    image.write_with_encoder(encoder)?;
+    // The source decoder already returns a layout accepted by its encoder:
+    // JPEG L8/RGB8, BMP/WebP 8-bit, and PNG 8/16-bit. No conversion is needed.
+    encoder.write_image(&image.bytes, image.width, image.height, image.color.into())?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{GenericImageView, Rgba, RgbaImage};
+    use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
+
+    const COLORS: [ColorType; 8] = [
+        ColorType::L8,
+        ColorType::La8,
+        ColorType::Rgb8,
+        ColorType::Rgba8,
+        ColorType::L16,
+        ColorType::La16,
+        ColorType::Rgb16,
+        ColorType::Rgba16,
+    ];
+
+    fn fixture(color: ColorType) -> DynamicImage {
+        let pixels = (0..9 * 7 * usize::from(color.bytes_per_pixel()))
+            .map(|index| index.wrapping_mul(73).wrapping_add(index / 7) as u8)
+            .collect::<Vec<_>>();
+        let mut encoded = Vec::new();
+        PngEncoder::new(&mut encoded)
+            .write_image(&pixels, 9, 7, color.into())
+            .unwrap();
+        image::load_from_memory(&encoded).unwrap()
+    }
+
+    fn reference_encode(
+        image: &DynamicImage,
+        format: ImageFormat,
+        profile: Option<Vec<u8>>,
+        orientation: Option<u8>,
+    ) -> Vec<u8> {
+        fn write(
+            image: &DynamicImage,
+            mut encoder: impl ImageEncoder,
+            profile: Option<Vec<u8>>,
+            orientation: Option<u8>,
+        ) {
+            if let Some(profile) = profile {
+                encoder.set_icc_profile(profile).unwrap();
+            }
+            if let Some(orientation) = orientation {
+                encoder
+                    .set_exif_metadata(vec![
+                        73,
+                        73,
+                        42,
+                        0,
+                        8,
+                        0,
+                        0,
+                        0,
+                        1,
+                        0,
+                        18,
+                        1,
+                        3,
+                        0,
+                        1,
+                        0,
+                        0,
+                        0,
+                        orientation,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                    ])
+                    .unwrap();
+            }
+            image.write_with_encoder(encoder).unwrap();
+        }
+        let mut bytes = Vec::new();
+        match format {
+            ImageFormat::Png => write(image, PngEncoder::new(&mut bytes), profile, orientation),
+            ImageFormat::Jpeg => write(
+                image,
+                JpegEncoder::new_with_quality(&mut bytes, 95),
+                profile,
+                orientation,
+            ),
+            ImageFormat::WebP => write(
+                image,
+                WebPEncoder::new_lossless(&mut bytes),
+                profile,
+                orientation,
+            ),
+            ImageFormat::Bmp => write(image, BmpEncoder::new(&mut bytes), profile, orientation),
+            _ => unreachable!(),
+        }
+        bytes
+    }
+
+    #[test]
+    fn byte_geometry_matches_imageops_for_every_layout_orientation_and_crop_edge() {
+        let orientations = [
+            Orientation::NoTransforms,
+            Orientation::FlipHorizontal,
+            Orientation::Rotate180,
+            Orientation::FlipVertical,
+            Orientation::Rotate90FlipH,
+            Orientation::Rotate90,
+            Orientation::Rotate270FlipH,
+            Orientation::Rotate270,
+        ];
+        for color in COLORS {
+            let source = fixture(color);
+            for orientation in orientations {
+                let mut oriented = source.clone();
+                oriented.apply_orientation(orientation);
+                for rect in [
+                    CropRect {
+                        x: 0,
+                        y: 0,
+                        width: oriented.width(),
+                        height: oriented.height(),
+                    },
+                    CropRect {
+                        x: 0,
+                        y: 0,
+                        width: 1,
+                        height: 1,
+                    },
+                    CropRect {
+                        x: oriented.width() - 1,
+                        y: oriented.height() - 1,
+                        width: 1,
+                        height: 1,
+                    },
+                    CropRect {
+                        x: 1,
+                        y: 2,
+                        width: 3,
+                        height: 2,
+                    },
+                ] {
+                    let pixels = ImagePixels {
+                        bytes: source.as_bytes().to_vec(),
+                        width: source.width(),
+                        height: source.height(),
+                        color,
+                    };
+                    let actual = pixels.crop_orient(rect, orientation).unwrap();
+                    let expected = oriented.crop_imm(rect.x, rect.y, rect.width, rect.height);
+                    assert_eq!(
+                        actual.bytes,
+                        expected.as_bytes(),
+                        "{color:?}, {orientation:?}, {rect:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn encoded_crops_match_dynamic_image_bytes_for_all_formats_layouts_and_orientations() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("source");
+        for format in [
+            ImageFormat::Png,
+            ImageFormat::Jpeg,
+            ImageFormat::WebP,
+            ImageFormat::Bmp,
+        ] {
+            for color in COLORS {
+                if !match format {
+                    ImageFormat::Png => true,
+                    ImageFormat::Jpeg => matches!(color, ColorType::L8 | ColorType::Rgb8),
+                    ImageFormat::WebP => matches!(color, ColorType::Rgb8 | ColorType::Rgba8),
+                    ImageFormat::Bmp => {
+                        matches!(color, ColorType::L8 | ColorType::Rgb8 | ColorType::Rgba8)
+                    }
+                    _ => unreachable!(),
+                } {
+                    continue;
+                }
+                let source = fixture(color);
+                for orientation in 1..=if format == ImageFormat::Bmp { 1 } else { 8 } {
+                    let profile =
+                        (format != ImageFormat::Bmp).then(|| b"test colour profile".to_vec());
+                    let exif = (format != ImageFormat::Bmp).then_some(orientation);
+                    std::fs::write(&path, reference_encode(&source, format, profile, exif))
+                        .unwrap();
+                    let (_, mut decoder) = still_decoder(&path).unwrap();
+                    let orientation = decoder.orientation().unwrap();
+                    let profile = decoder.icc_profile().unwrap();
+                    let mut reference = DynamicImage::from_decoder(decoder).unwrap();
+                    reference.apply_orientation(orientation);
+                    let rect = CropRect {
+                        x: 1,
+                        y: 2,
+                        width: 3,
+                        height: 2,
+                    };
+                    let expected = reference_encode(
+                        &reference.crop_imm(rect.x, rect.y, rect.width, rect.height),
+                        format,
+                        profile,
+                        None,
+                    );
+                    crop_image(&path, rect).unwrap();
+                    assert_eq!(
+                        std::fs::read(&path).unwrap(),
+                        expected,
+                        "{format:?}, {color:?}, {orientation:?}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn crop_replaces_source_preserving_pixels_alpha_format_and_cleans_up() {

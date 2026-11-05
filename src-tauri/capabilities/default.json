@@ -4,7 +4,8 @@
   "description": "Capability for the main window",
   "windows": ["main"],
   "permissions": [
-    "core:default",
+    "core:window:allow-internal-toggle-maximize",
+    "core:webview:allow-internal-toggle-devtools",
     "core:window:allow-close",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",

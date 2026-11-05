@@ -11,7 +11,10 @@
 //! module existed — so animated GIF, colour-managed images and files already
 //! smaller than the window behave as they always did.
 
-use super::{crop::still_decoder, metadata_preflight::MAX_SAFE_DECODED_RGBA_BYTES};
+use super::{
+    crop::{oriented_dimensions, still_decoder, CropRect, ImagePixels},
+    metadata_preflight::MAX_SAFE_DECODED_RGBA_BYTES,
+};
 use std::{
     collections::VecDeque,
     io::Cursor,
@@ -26,8 +29,8 @@ use fast_image_resize::{
     FilterType, PixelTrait, ResizeAlg, ResizeOptions, Resizer,
 };
 use image::{
-    codecs::bmp::BmpEncoder, metadata::Orientation, DynamicImage, ExtendedColorType, GrayImage,
-    ImageDecoder, ImageFormat, RgbImage,
+    codecs::bmp::BmpEncoder, metadata::Orientation, ColorType, ExtendedColorType, ImageDecoder,
+    ImageFormat, RgbImage,
 };
 
 /// Below 1/2 there is no DCT scale to take, and taking one anyway is a loss:
@@ -229,23 +232,39 @@ fn fit_uncached(
         fitted
     };
 
-    let mut decoded = decode_to_cover(path, format, decoder, probe.width, probe.height, required)?;
+    let decoded = decode_to_cover(path, format, decoder, probe.width, probe.height, required)?;
     if !is_current() {
         return None;
     }
-    decoded.apply_orientation(probe.orientation);
+    let displayed = oriented_dimensions((decoded.width, decoded.height), probe.orientation);
+    let decoded = decoded
+        .crop_orient(
+            CropRect {
+                x: 0,
+                y: 0,
+                width: displayed.0,
+                height: displayed.1,
+            },
+            probe.orientation,
+        )
+        .ok()?;
     if !is_current() {
         return None;
     }
-    let resized = match decoded {
+    let resized = match decoded.color {
         // All RGB channels of a grayscale image are identical. Convolve once
         // before expanding, instead of allocating and convolving three source
         // channels. Keep orientation before convolution for identical rounding.
-        DynamicImage::ImageLuma8(gray) => {
-            let pixels = resize_pixels::<U8>(gray.as_raw(), gray.dimensions(), fitted)?;
-            DynamicImage::ImageLuma8(GrayImage::from_raw(fitted.0, fitted.1, pixels)?).into_rgb8()
+        ColorType::L8 => {
+            let pixels =
+                resize_pixels::<U8>(&decoded.bytes, (decoded.width, decoded.height), fitted)?;
+            RgbImage::from_raw(
+                fitted.0,
+                fitted.1,
+                pixels.into_iter().flat_map(|value| [value; 3]).collect(),
+            )?
         }
-        image => resize_rgb(&image.into_rgb8(), fitted)?,
+        _ => resize_rgb(&into_rgb8(decoded)?, fitted)?,
     };
     if !is_current() {
         return None;
@@ -289,7 +308,7 @@ fn decode_to_cover(
     width: u32,
     height: u32,
     required: (u32, u32),
-) -> Option<DynamicImage> {
+) -> Option<ImagePixels> {
     let (scaled_width, _) = dct_scale_for(width, height, required);
     let divisor = width.div_ceil(scaled_width.max(1)).max(1);
 
@@ -301,16 +320,47 @@ fn decode_to_cover(
     {
         let bytes = std::fs::read(path).ok()?;
         if let Some(frame) = decode_jpeg_at_divisor(&bytes, divisor) {
-            return Some(DynamicImage::ImageRgb8(frame));
+            return Some(ImagePixels {
+                width: frame.width(),
+                height: frame.height(),
+                color: ColorType::Rgb8,
+                bytes: frame.into_raw(),
+            });
         }
     }
 
-    // from_decoder does not apply ImageReader's allocation reservation. Keep
-    // that budget explicit when consuming the already-prepared decoder.
+    // Keep the allocation budget explicit for the already-prepared decoder.
     if decoder.total_bytes() > MAX_SAFE_DECODED_RGBA_BYTES {
         return None;
     }
-    DynamicImage::from_decoder(decoder).ok()
+    ImagePixels::decode(decoder).ok()
+}
+
+fn into_rgb8(image: ImagePixels) -> Option<RgbImage> {
+    let bytes = match image.color {
+        ColorType::Rgb8 => image.bytes,
+        ColorType::L8 => image
+            .bytes
+            .into_iter()
+            .flat_map(|value| [value; 3])
+            .collect(),
+        ColorType::L16 | ColorType::Rgb16 => {
+            // Match image's rounded 16-to-8-bit conversion, including values
+            // near rounding boundaries; truncating the high byte differs.
+            let samples = image.bytes.chunks_exact(2).map(|sample| {
+                ((u32::from(u16::from_ne_bytes([sample[0], sample[1]])) + 128) / 257) as u8
+            });
+            if image.color == ColorType::L16 {
+                samples.flat_map(|value| [value; 3]).collect()
+            } else {
+                samples.collect()
+            }
+        }
+        // Alpha-bearing images are declined before decoding. Enabled still
+        // codecs produce only 8/16-bit integer samples.
+        _ => return None,
+    };
+    RgbImage::from_raw(image.width, image.height, bytes)
 }
 
 /// A JPEG stores frequency coefficients, so a decoder can rebuild at 1/2, 1/4
@@ -420,6 +470,106 @@ mod tests {
     use tempfile::tempdir;
 
     const WINDOW: (u32, u32) = (2560, 1440);
+
+    #[test]
+    fn integer_rgb_conversion_matches_image_for_every_16_bit_sample() {
+        use image::{DynamicImage, ImageBuffer, Luma, Rgb};
+        let sources = [
+            DynamicImage::ImageLuma16(ImageBuffer::from_fn(256, 256, |x, y| {
+                Luma([(y * 256 + x) as u16])
+            })),
+            DynamicImage::ImageRgb16(ImageBuffer::from_fn(256, 256, |x, y| {
+                let sample = (y * 256 + x) as u16;
+                Rgb([sample, sample.wrapping_add(128), sample.wrapping_mul(257)])
+            })),
+        ];
+        for source in sources {
+            let pixels = ImagePixels {
+                bytes: source.as_bytes().to_vec(),
+                width: source.width(),
+                height: source.height(),
+                color: source.color(),
+            };
+            assert_eq!(into_rgb8(pixels).unwrap(), source.into_rgb8());
+        }
+    }
+
+    #[test]
+    fn fitted_integer_png_pixels_match_the_dynamic_image_pipeline() {
+        use image::{codecs::png::PngEncoder, DynamicImage, ImageBuffer, ImageEncoder, Luma, Rgb};
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("source.png");
+        let sources = [
+            DynamicImage::ImageLuma8(ImageBuffer::from_fn(31, 23, |x, y| {
+                Luma([(x * 73 + y * 19) as u8])
+            })),
+            DynamicImage::ImageRgb8(ImageBuffer::from_fn(31, 23, |x, y| {
+                Rgb([x as u8 * 7, y as u8 * 9, (x + y) as u8 * 4])
+            })),
+            DynamicImage::ImageLuma16(ImageBuffer::from_fn(31, 23, |x, y| {
+                Luma([(x * 1907 + y * 1171) as u16])
+            })),
+            DynamicImage::ImageRgb16(ImageBuffer::from_fn(31, 23, |x, y| {
+                Rgb([
+                    (x * 1907) as u16,
+                    (y * 2731) as u16,
+                    ((x + y) * 1171) as u16,
+                ])
+            })),
+        ];
+        for source in sources {
+            for orientation in 1..=8 {
+                let mut encoder = PngEncoder::new(std::fs::File::create(&path).unwrap());
+                encoder
+                    .set_exif_metadata(vec![
+                        73,
+                        73,
+                        42,
+                        0,
+                        8,
+                        0,
+                        0,
+                        0,
+                        1,
+                        0,
+                        18,
+                        1,
+                        3,
+                        0,
+                        1,
+                        0,
+                        0,
+                        0,
+                        orientation,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                    ])
+                    .unwrap();
+                source.write_with_encoder(encoder).unwrap();
+                let (_, mut decoder) = still_decoder(&path).unwrap();
+                let orientation = decoder.orientation().unwrap();
+                let mut reference = DynamicImage::from_decoder(decoder).unwrap();
+                reference.apply_orientation(orientation);
+                let rgb = reference.into_rgb8();
+                for viewport in [(13, 9), (1, 1), (30, 22)] {
+                    let fitted = fit_within(rgb.width(), rgb.height(), viewport);
+                    let expected = encode_bmp(&resize_rgb(&rgb, fitted).unwrap()).unwrap();
+                    let actual = fit_uncached(&path, viewport, &|| true).unwrap();
+                    assert_eq!(
+                        actual.bytes,
+                        expected.bytes,
+                        "{:?}, {orientation:?}, {viewport:?}",
+                        source.color()
+                    );
+                }
+            }
+        }
+    }
 
     fn write_jpeg(path: &Path, width: u32, height: u32) {
         // A gradient rather than a flat fill: a flat image compresses to almost

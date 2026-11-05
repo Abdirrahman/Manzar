@@ -1,44 +1,64 @@
 # Application size
 
 Measured on Linux x86_64 with Rust 1.90.0, comparing application source at
-`d7396fac` with this change. Both builds used the same Cargo.lock and toolchain;
-retained frontend files match byte for byte. Figures exclude system libraries and build caches.
+`d7396fac` with this change. Both builds used the same Rust Cargo.lock and toolchain.
+Figures exclude system libraries and build caches.
 
 | Artifact | Before (bytes) | After (bytes) | Reduction |
 | --- | ---: | ---: | ---: |
-| Frontend files in `dist` | 5,188,121 | 244,089 | 95.30% / 21.26× |
-| Default release executable | 15,024,528 | 7,020,400 | 53.27% / 2.14× |
-| Executable with both versions stripped | 13,925,880 | 7,020,400 | 49.59% / 1.98× |
-| Tauri Debian installer | 8,475,482 | 2,852,382 | 66.35% / 2.97× |
+| Frontend files in `dist` | 5,188,121 | 228,425 | 95.60% / 22.71× |
+| Default release executable | 15,024,528 | 5,488,304 | 63.47% / 2.74× |
+| Executable with both versions stripped | 13,925,880 | 5,488,304 | 60.59% / 2.54× |
+| Tauri Debian installer | 8,475,482 | 2,315,450 | 72.68% / 3.66× |
+
+The second pass starts at `97b77cb7`: 7,020,400-byte executable,
+2,852,382-byte installer and 244,089 frontend bytes. It saves another 21.82%,
+18.82% and 6.42% respectively.
 
 ## Changes
 
-- Move README screenshots outside Vite's public directory. The screenshots remain
-  byte-identical; all retained frontend files, including JS and CSS, also match exactly.
+- Move README screenshots outside Vite's public directory, preserving their bytes.
 - Use typed grayscale/RGB resizing to avoid compiling unused pixel-format kernels.
   Lanczos3 filtering, SIMD dispatch and format support are preserved.
-- Disable unused runtime ACL mutation and prune plugin commands excluded by the
-  existing static capabilities. All application commands and required window/dialog
-  commands remain available.
+- Replace generic image geometry/conversion with validated native-endian byte buffers.
+  This removes processing for unused layouts while preserving encoded output, ICC,
+  EXIF, transparency, memory limits and verified atomic crop replacement.
+- Disable unused runtime ACL mutation and prune plugin commands. Replace `core:default`
+  with the six core commands actually needed, plus dialog open. All ten application
+  commands remain available; debug devtools and native window gestures are retained.
+- Invoke the three window actions directly and omit the unused module-preload polyfill.
+  The application has a single JavaScript bundle with no dynamic imports.
 - Strip release symbols. Arch builds override this so makepkg can extract debug
   symbols before stripping; debug builds retain their normal symbols.
+- Optimize ten UI/runtime crates for size; image processing stays at level 3.
 
-The full application did not reach 10×. Its remaining native framework, codecs and
-image processing exceed that budget. A package-only `opt-level="s"` trial increased
-the executable from 8,017,304 to 8,093,624 bytes before command pruning, so the normal
-optimization level remains unchanged. Panic unwinding and JPEG parallelism remain enabled.
+The full application did not reach 10×. A package-only `opt-level="s"` trial grew
+the binary, and safe linker folding saved only eight bytes; neither is enabled.
+Panic unwinding, JPEG parallelism, X11/DBus compatibility and supported codecs remain.
 
 ## Verification
 
-The frontend build, 2,491 frontend assertions and all 104 Rust tests pass. Vite was
-updated to 7.3.7 to clear the dependency audit; emitted frontend files remain identical.
-The new
-resize regression test compares exact bytes with the previous dynamic API for both
-pixel types at three output sizes. A separate release comparison checked byte-identical
-12 MP RGB JPEG, grayscale JPEG and RGB PNG output across 21 alternating process pairs
-per case, after two warmups. Median render times were 54.22 → 50.38 ms,
-44.46 → 43.41 ms and 78.46 → 77.81 ms respectively; these measure the Rust fit API,
-not webview presentation. Command pruning changes plugin dispatch only.
+The frontend build, 2,491 frontend assertions and all 108 Rust tests pass. Vite 7.3.7
+clears the dependency audit. New tests compare the previous image implementation's
+geometry, fitted pixels and final encoded crop bytes across supported layouts and
+all eight EXIF orientations. The 16-to-8-bit conversion checks every possible sample.
+Independent review found no actionable security or correctness defects.
+
+Second-pass release comparisons checked identical output across 21 measured alternating
+process pairs per case, after two warmups. The fit cases use 12 MP sources; crop cases
+use 24 MP PNGs. Timings cover the Rust API, excluding fixture/reset/output capture
+and webview presentation:
+
+| Operation | Previous median (ms) | Current median (ms) |
+| --- | ---: | ---: |
+| Fit RGB JPEG | 50.56 | 53.64 |
+| Fit grayscale JPEG | 42.87 | 32.75 |
+| Fit RGB PNG | 77.01 | 79.26 |
+| Crop rotated PNG | 131.23 | 134.11 |
+| Crop upright PNG | 131.25 | 133.13 |
+
+This is a size/performance tradeoff: grayscale improves 23.6%, while other measured
+medians increase 1.4–6.1%. Generated ACLs and packaged executable contents were checked.
 
 Build and measure a revision with:
 
@@ -49,4 +69,5 @@ bun run tauri bundle --bundles deb --ci
 wc -c src-tauri/target/release/bundle/deb/*.deb
 ```
 
-Windows, macOS and AppImage sizes were not measured.
+Windows, macOS and AppImage sizes were not measured. Native GUI interactions were
+reviewed in source but were not exercised in this environment.
