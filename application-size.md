@@ -1,8 +1,8 @@
 # Application size
 
 Measured on Linux x86_64 with Rust 1.90.0, comparing application source at
-`d7396fac` with this change. Both builds used the same Cargo.lock, toolchain and
-installed frontend dependencies. Figures exclude system libraries and build caches.
+`d7396fac` with this change. Both builds used the same Cargo.lock and toolchain;
+retained frontend files match byte for byte. Figures exclude system libraries and build caches.
 
 | Artifact | Before (bytes) | After (bytes) | Reduction |
 | --- | ---: | ---: | ---: |
@@ -30,7 +30,9 @@ optimization level remains unchanged. Panic unwinding and JPEG parallelism remai
 
 ## Verification
 
-The frontend build, 2,491 frontend assertions and all 104 Rust tests pass. The new
+The frontend build, 2,491 frontend assertions and all 104 Rust tests pass. Vite was
+updated to 7.3.7 to clear the dependency audit; emitted frontend files remain identical.
+The new
 resize regression test compares exact bytes with the previous dynamic API for both
 pixel types at three output sizes. A separate release comparison checked byte-identical
 12 MP RGB JPEG, grayscale JPEG and RGB PNG output across 21 alternating process pairs
