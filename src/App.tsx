@@ -6,8 +6,7 @@ import {
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { pickImageFiles, pickImageFolder } from "./fileDialogs";
 import { useImagePresentation } from "./useImagePresentation";
 import { CropEditor } from "./CropEditor";
@@ -216,9 +215,10 @@ export default function App() {
   }
   function windowAction(action: "minimize" | "toggleMaximize" | "close") {
     if (isTauri())
-      void getCurrentWindow()
-        [action]()
-        .catch((error) => setError(backendErrorMessage(error)));
+      // Without a label, Tauri targets the window that made the IPC request.
+      void invoke<void>(
+        `plugin:window|${action === "toggleMaximize" ? "toggle_maximize" : action}`,
+      ).catch((error) => setError(backendErrorMessage(error)));
   }
 
   useEffect(() => {

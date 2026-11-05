@@ -39,7 +39,8 @@ build() {
   cd "Manzar-$pkgver"
 
   bun install --frozen-lockfile
-  bun run tauri build --no-bundle
+  # Let makepkg extract debug symbols before stripping the installed binary.
+  CARGO_PROFILE_RELEASE_STRIP=none bun run tauri build --no-bundle
 }
 
 package() {

@@ -19,8 +19,8 @@ Manzar opens local image and video files, selections, and folders without import
 Use it when you want to quickly inspect a directory of images, move through a sequence, zoom in, rename one file, or send the current image to trash — then get out of the way.
 
 <p align="center">
-  <img src="public/no-image-open.png" alt="Manzar empty state" width="49%">
-  <img src="public/image-open.png" alt="Manzar displaying an image" width="49%">
+  <img src=".github/screenshots/no-image-open.png" alt="Manzar empty state" width="49%">
+  <img src=".github/screenshots/image-open.png" alt="Manzar displaying an image" width="49%">
 </p>
 
 ## Features
